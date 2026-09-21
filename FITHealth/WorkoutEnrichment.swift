@@ -89,19 +89,21 @@ enum WorkoutEnrichment {
 
     static func healthMetadata(_ snapshot: EnrichmentSnapshot) -> [String: Any] {
         var info: [String: Any] = [:]
-        if let celsius = snapshot.weather.temperatureCelsius {
+        if let celsius = snapshot.weather.temperatureCelsius, celsius.isFinite {
             info[HKMetadataKeyWeatherTemperature] = HKQuantity(unit: .degreeCelsius(), doubleValue: celsius)
         }
-        if let humidity = snapshot.weather.humidity {
+        if let humidity = WorkoutDisplay.humidityPercent(snapshot.weather.humidity) {
+            // Fitness reads this quantity's percent doubleValue as percentage points.
+            // Open-Meteo is stored as 0–1 for the in-app preview; 0.81 would show as "0%".
             info[HKMetadataKeyWeatherHumidity] = HKQuantity(unit: .percent(), doubleValue: humidity)
         }
         if let condition = snapshot.weather.condition, condition != .none {
             info[HKMetadataKeyWeatherCondition] = NSNumber(value: condition.rawValue)
         }
-        if let hPa = snapshot.weather.pressureHPa, hPa > 0 {
+        if let hPa = snapshot.weather.pressureHPa, hPa.isFinite, hPa > 0 {
             info[HKMetadataKeyBarometricPressure] = HKQuantity(unit: hectopascal, doubleValue: hPa)
         }
-        if let mets = snapshot.mets.value, mets > 0 {
+        if let mets = snapshot.mets.value, mets.isFinite, mets > 0 {
             info[HKMetadataKeyAverageMETs] = HKQuantity(unit: metsUnit, doubleValue: mets)
         }
         return info

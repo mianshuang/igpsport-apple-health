@@ -2,6 +2,19 @@ import XCTest
 @testable import FITHealthCore
 
 final class OpenMeteoTests: XCTestCase {
+    func testWorkoutDisplayMetadata() {
+        XCTAssertEqual(WorkoutDisplay.name("  晚间骑行  "), "晚间骑行")
+        XCTAssertEqual(WorkoutDisplay.name(" \n "), "户外骑行")
+        XCTAssertEqual(WorkoutDisplay.humidityPercent(0.81), 81)
+        XCTAssertEqual(WorkoutDisplay.humidityPercent(0.815), 82)
+        XCTAssertEqual(WorkoutDisplay.humidityPercent(0), 0)
+        XCTAssertEqual(WorkoutDisplay.humidityPercent(1), 100)
+        for value in [Double.nan, .infinity, -0.1, 1.01] {
+            XCTAssertNil(WorkoutDisplay.humidityPercent(value))
+        }
+        XCTAssertNil(WorkoutDisplay.humidityPercent(nil))
+    }
+
     func testRoutingAndUTCDateBoundary() throws {
         let date = Date(timeIntervalSince1970: 86400 - 600)
         let recent = OpenMeteo.url(date: date, latitude: 30, longitude: 110, now: date)

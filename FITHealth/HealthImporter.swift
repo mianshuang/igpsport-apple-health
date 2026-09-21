@@ -33,7 +33,7 @@ final class HealthImporter {
         return await WorkoutEnrichment.mets(for: activity, store: store)
     }
 
-    func save(_ activity: FITActivity, enrichment: EnrichmentSnapshot,
+    func save(_ activity: FITActivity, enrichment: EnrichmentSnapshot, workoutName: String = "户外骑行",
               onPhase: @escaping @Sendable (ImportPhase) -> Void = { _ in }) async throws {
         RideLog.phase("写入 Apple 健康")
         RideLog.step("HKHealthStore.isHealthDataAvailable()", "确认本机能否使用健康")
@@ -82,7 +82,7 @@ final class HealthImporter {
         let store = self.store
         do {
             try await withTimeout(timeout) {
-                try await persist(activity, store: store, enrichment: enrichment)
+                try await persist(activity, store: store, enrichment: enrichment, workoutName: workoutName)
             }
         } catch RideWaitError.timedOut(let seconds) {
             RideLog.fail("persist", "写入超时", extra: RideTiming.secondsLabel(seconds))
@@ -106,7 +106,7 @@ final class HealthImporter {
     }
 }
 
-private func persist(_ activity: FITActivity, store: HKHealthStore, enrichment: EnrichmentSnapshot) async throws {
+private func persist(_ activity: FITActivity, store: HKHealthStore, enrichment: EnrichmentSnapshot, workoutName: String) async throws {
     try Task.checkCancellation()
     var clock = RideStageClock()
     let meterPerSecond = HKUnit.meter().unitDivided(by: .second())
@@ -116,11 +116,10 @@ private func persist(_ activity: FITActivity, store: HKHealthStore, enrichment: 
     configuration.locationType = .outdoor
     RideLog.step("HKWorkoutConfiguration", "固定为室外骑行，不会写成室内或其它运动")
     let extraMetadata = WorkoutEnrichment.healthMetadata(enrichment)
-    let device = HKDevice(name: "iGPSPORT", manufacturer: "iGPSPORT", model: "FIT",
-                          hardwareVersion: nil, firmwareVersion: nil, softwareVersion: "1.0",
-                          localIdentifier: nil, udiDeviceIdentifier: nil)
-    let builder = HKWorkoutBuilder(healthStore: store, configuration: configuration, device: device)
-    RideLog.ok("HKWorkoutBuilder", "创建运动收集器", extra: clock.extra())
+    // Fitness uses HKDevice / brand artwork for the workout glyph. A fake
+    // iGPSPORT device makes it look up a partner icon that does not exist.
+    let builder = HKWorkoutBuilder(healthStore: store, configuration: configuration, device: nil)
+    RideLog.ok("HKWorkoutBuilder", "创建运动收集器。来源是本应用，不挂伪造的 iGPSPORT 设备", extra: clock.extra())
     var routeBuilder: HKWorkoutRouteBuilder?
     do {
         RideLog.step("beginCollection(at:)", "打开收集窗口，起点是 FIT start_time")
@@ -130,7 +129,7 @@ private func persist(_ activity: FITActivity, store: HKHealthStore, enrichment: 
         try Task.checkCancellation()
 
         routeBuilder = try await insertRoute(activity, to: builder, clock: &clock)
-        try await addDistance(activity, store: store, device: device, to: builder, clock: &clock)
+        try await addDistance(activity, store: store, to: builder, clock: &clock)
         try await addTotals(activity, to: builder, clock: &clock)
 
         let rawSpeeds = activity.samples.compactMap { sample -> (Date, Double)? in
@@ -143,19 +142,19 @@ private func persist(_ activity: FITActivity, store: HKHealthStore, enrichment: 
         RideLog.ok("RideSampling.downsample", "速度采样已稀释",
                    extra: clock.extra("\(rawSpeeds.count) → \(speeds.count) 点"))
 
-        try await addSeries(store: store, device: device, type: HKQuantityType(.cyclingSpeed),
+        try await addSeries(store: store, type: HKQuantityType(.cyclingSpeed),
                             unit: meterPerSecond, points: speeds, to: builder, clock: &clock,
                             call: "cyclingSpeed", meaning: "写入稀释后的骑行速度曲线，单位 m/s")
-        try await addSeries(store: store, device: device, type: HKQuantityType(.heartRate),
+        try await addSeries(store: store, type: HKQuantityType(.heartRate),
                             unit: rpm, points: activity.heartRates.map { ($0.date, $0.bpm) }, to: builder, clock: &clock,
                             call: "heartRate", meaning: "写入心率采样；没有心率带则为空")
-        try await addSeries(store: store, device: device, type: HKQuantityType(.cyclingCadence),
+        try await addSeries(store: store, type: HKQuantityType(.cyclingCadence),
                             unit: rpm, points: activity.samples.compactMap { sample in
             guard let cadence = sample.cadence, cadence > 0 else { return nil }
             return (sample.date, cadence)
         }, to: builder, clock: &clock,
                             call: "cyclingCadence", meaning: "写入踏频采样；没有踏频器则为空")
-        try await addSeries(store: store, device: device, type: HKQuantityType(.cyclingPower),
+        try await addSeries(store: store, type: HKQuantityType(.cyclingPower),
                             unit: .watt(), points: activity.samples.compactMap { sample in
             guard let power = sample.power, power >= 0 else { return nil }
             return (sample.date, power)
@@ -164,9 +163,9 @@ private func persist(_ activity: FITActivity, store: HKHealthStore, enrichment: 
 
         try await addEvents(activity, to: builder, clock: &clock)
 
-        var info = metadata(activity, meterPerSecond: meterPerSecond)
+        var info = metadata(activity, meterPerSecond: meterPerSecond, workoutName: workoutName)
         info.merge(extraMetadata, uniquingKeysWith: { _, new in new })
-        RideLog.step("addMetadata", "写入均速/极速、爬升、天气、平均强度和品牌等整场元数据", extra: metadataSummary(info))
+        RideLog.step("addMetadata", "写入均速/极速、爬升、天气、平均强度和运动名称等整场元数据", extra: metadataSummary(info))
         try Task.checkCancellation()
         try await builder.addMetadata(info)
         RideLog.ok("addMetadata", "元数据已挂到本次运动", extra: clock.extra())
@@ -235,7 +234,7 @@ private func insertRoute(_ activity: FITActivity, to builder: HKWorkoutBuilder,
     return route
 }
 
-private func addDistance(_ activity: FITActivity, store: HKHealthStore, device: HKDevice,
+private func addDistance(_ activity: FITActivity, store: HKHealthStore,
                          to builder: HKWorkoutBuilder, clock: inout RideStageClock) async throws {
     let increments = RideSampling.distanceIncrements(activity.samples)
     let moving = RideSampling.movingIntervals(start: activity.start, end: activity.end, events: activity.timerEvents)
@@ -249,7 +248,7 @@ private func addDistance(_ activity: FITActivity, store: HKHealthStore, device: 
     if !points.isEmpty {
         RideLog.step("distanceCycling", "按码表累计里程的增量写入，避免一条总量被暂停时段按比例切掉",
                      extra: "\(points.count) 段，合计 \(RideLog.km(incrementTotal))")
-        try await addCumulative(store: store, device: device, type: HKQuantityType(.distanceCycling),
+        try await addCumulative(store: store, type: HKQuantityType(.distanceCycling),
                                 unit: .meter(), points: points, to: builder, clock: &clock,
                                 call: "distanceCycling", meaning: "骑行距离增量")
         return
@@ -289,7 +288,7 @@ private func addTotals(_ activity: FITActivity, to builder: HKWorkoutBuilder, cl
     RideLog.ok("addSamples(totals)", "热量已加入本次运动", extra: clock.extra("\(samples.count) 条"))
 }
 
-private func addSeries(store: HKHealthStore, device: HKDevice, type: HKQuantityType,
+private func addSeries(store: HKHealthStore, type: HKQuantityType,
                        unit: HKUnit, points: [(Date, Double)], to builder: HKWorkoutBuilder,
                        clock: inout RideStageClock, call: String, meaning: String) async throws {
     guard let first = points.first else {
@@ -297,7 +296,7 @@ private func addSeries(store: HKHealthStore, device: HKDevice, type: HKQuantityT
         return
     }
     RideLog.step(call, meaning, extra: "\(points.count) 点，从 \(RideLog.date(first.0)) 开始")
-    let series = HKQuantitySeriesSampleBuilder(healthStore: store, quantityType: type, startDate: first.0, device: device)
+    let series = HKQuantitySeriesSampleBuilder(healthStore: store, quantityType: type, startDate: first.0, device: nil)
     do {
         var last: Date?
         var inserted = 0
@@ -338,7 +337,7 @@ private func addSeries(store: HKHealthStore, device: HKDevice, type: HKQuantityT
     RideLog.ok("\(call).addSamples", "该序列已挂到本次运动", extra: clock.extra("\(samples.count) 条 sample"))
 }
 
-private func addCumulative(store: HKHealthStore, device: HKDevice, type: HKQuantityType,
+private func addCumulative(store: HKHealthStore, type: HKQuantityType,
                            unit: HKUnit, points: [(DateInterval, Double)], to builder: HKWorkoutBuilder,
                            clock: inout RideStageClock, call: String, meaning: String) async throws {
     guard let first = points.first else {
@@ -346,7 +345,7 @@ private func addCumulative(store: HKHealthStore, device: HKDevice, type: HKQuant
         return
     }
     RideLog.step(call, meaning, extra: "\(points.count) 段，从 \(RideLog.date(first.0.start)) 开始")
-    let series = HKQuantitySeriesSampleBuilder(healthStore: store, quantityType: type, startDate: first.0.start, device: device)
+    let series = HKQuantitySeriesSampleBuilder(healthStore: store, quantityType: type, startDate: first.0.start, device: nil)
     do {
         var last: Date?
         var inserted = 0
@@ -456,10 +455,11 @@ private func routeLocations(_ activity: FITActivity) -> [CLLocation] {
     return result
 }
 
-private func metadata(_ activity: FITActivity, meterPerSecond: HKUnit) -> [String: Any] {
+private func metadata(_ activity: FITActivity, meterPerSecond: HKUnit, workoutName: String) -> [String: Any] {
     var info: [String: Any] = [
-        HKMetadataKeyIndoorWorkout: false,
-        HKMetadataKeyWorkoutBrandName: "iGPSPORT"
+        HKMetadataKeyIndoorWorkout: NSNumber(value: false),
+        HKMetadataKeyWorkoutBrandName: WorkoutDisplay.name(workoutName),
+        HKMetadataKeyTimeZone: TimeZone.current.identifier
     ]
     if let speed = activity.avgSpeed ?? (activity.duration > 0 ? activity.distance.map { $0 / activity.duration } : nil) {
         info[HKMetadataKeyAverageSpeed] = HKQuantity(unit: meterPerSecond, doubleValue: speed)
@@ -487,13 +487,21 @@ private func metadataSummary(_ info: [String: Any]) -> String {
     info.keys.sorted().map { key in
         switch key {
         case HKMetadataKeyIndoorWorkout: "室内=否"
-        case HKMetadataKeyWorkoutBrandName: "品牌=iGPSPORT"
+        case HKMetadataKeyWorkoutBrandName:
+            "运动名称=\(info[key] as? String ?? "")"
+        case HKMetadataKeyTimeZone:
+            "时区=\(info[key] as? String ?? "")"
         case HKMetadataKeyAverageSpeed: "均速"
         case HKMetadataKeyMaximumSpeed: "极速"
         case HKMetadataKeyElevationAscended: "累计爬升"
         case HKMetadataKeyElevationDescended: "累计下降"
         case HKMetadataKeyWeatherTemperature: "环境温度"
-        case HKMetadataKeyWeatherHumidity: "湿度"
+        case HKMetadataKeyWeatherHumidity:
+            if let quantity = info[key] as? HKQuantity {
+                "湿度 \(Int(quantity.doubleValue(for: .percent()).rounded()))%"
+            } else {
+                "湿度"
+            }
         case HKMetadataKeyWeatherCondition: "天气状况"
         case HKMetadataKeyBarometricPressure: "气压"
         case HKMetadataKeyAverageMETs: "平均MET"

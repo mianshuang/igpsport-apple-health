@@ -99,3 +99,18 @@ enum OpenMeteo {
         }
     }
 }
+
+/// In-app weather preview keeps humidity as 0–1. Fitness workout details treat
+/// `HKMetadataKeyWeatherHumidity` as percentage points (Apple Watch samples
+/// store 36% as percent doubleValue 36, which prints as "3600 %").
+enum WorkoutDisplay {
+    static func name(_ input: String) -> String {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "户外骑行" : trimmed
+    }
+
+    static func humidityPercent(_ fraction: Double?) -> Double? {
+        guard let fraction, fraction.isFinite, (0...1).contains(fraction) else { return nil }
+        return (fraction * 100).rounded()
+    }
+}

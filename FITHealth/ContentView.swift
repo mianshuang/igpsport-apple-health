@@ -15,6 +15,7 @@ private enum AppAppearance: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
+    @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage("appAppearance") private var appearance: AppAppearance = .light
 
     @State private var showPicker = false
@@ -25,6 +26,7 @@ struct ContentView: View {
     @State private var metsBusy = false
     @State private var queryPassFinished = false
     @State private var filename = ""
+    @State private var workoutName = "户外骑行"
     @State private var wait: WaitState?
     @State private var importing = false
     @State private var imported = false
@@ -60,6 +62,22 @@ struct ContentView: View {
                     }
 
                     if let activity, wait?.kind != .reading {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("运动名称").font(.caption).foregroundStyle(.secondary)
+                            TextField("户外骑行", text: $workoutName)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.body)
+                                .submitLabel(.done)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .disabled(importing || imported)
+                                .onSubmit { workoutName = WorkoutDisplay.name(workoutName) }
+                                .accessibilityLabel("运动名称")
+                            Text("写入后作为 Fitness 里这条骑行的标题。")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .card()
                         summaryCard(activity)
                     }
 
@@ -80,11 +98,11 @@ struct ContentView: View {
                     }
 
                     if let activity, wait?.kind != .reading {
-                        importButton(activity)
                         if writeOutcomeUncertain {
                             Text("写入结果尚未确认。请先到健康 App 核对记录，核对后重新启动本应用。")
                                 .font(.footnote).foregroundStyle(.orange)
                         }
+                        importButton(activity)
                     }
                 }
                 .padding(20)
@@ -140,11 +158,9 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(appearance.colorScheme)
-        .tint(Color(uiColor: UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(red: 0.40, green: 0.87, blue: 0.70, alpha: 1)
-                : UIColor(red: 0.02, green: 0.42, blue: 0.33, alpha: 1)
-        }))
+        .tint((appearance == .dark || (appearance == .system && systemColorScheme == .dark))
+              ? Color(red: 0.40, green: 0.87, blue: 0.70)
+              : Color(red: 0.02, green: 0.42, blue: 0.33))
     }
 
     @ViewBuilder
@@ -208,9 +224,10 @@ struct ContentView: View {
                 if !imported {
                     Text(RideTiming.secondsLabel(estimate))
                         .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color("OnAccent").opacity(0.75))
                 }
             }
+            .foregroundStyle(Color("OnAccent"))
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
@@ -250,6 +267,7 @@ struct ContentView: View {
         let token = UUID()
         routeToken = token
         activity = nil
+        workoutName = "户外骑行"
         mapLocations = []
         snapshot = EnrichmentSnapshot()
         queryPassFinished = false
@@ -348,7 +366,7 @@ struct ContentView: View {
         }
         RideLog.step("写入 Apple 健康", "用户确认把当前骑行写入本机健康")
         do {
-            try await importer.save(activity, enrichment: snapshot) { phase in
+            try await importer.save(activity, enrichment: snapshot, workoutName: WorkoutDisplay.name(workoutName)) { phase in
                 Task { @MainActor in
                     guard importEpoch == epoch else { return }
                     switch phase {
@@ -567,7 +585,7 @@ private struct QueryChecklist: View {
             } else {
                 Image(systemName: ok ? "checkmark.circle.fill" : "minus.circle")
                     .font(.subheadline)
-                    .foregroundStyle(ok ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(ok ? Color("BrandAccent") : Color.secondary)
                     .frame(width: 18)
             }
             VStack(alignment: .leading, spacing: 2) {
