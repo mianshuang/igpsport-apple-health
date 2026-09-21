@@ -534,8 +534,8 @@ struct FITParser {
     }
 
     private static func speed(_ values: [Int: Double], enhanced: Int, raw: Int) -> Double? {
-        if let value = values[enhanced] { return value / 1000 }
-        if let value = values[raw] { return value / 1000 }
+        if let value = values[enhanced], value > 0 { return value / 1000 }
+        if let value = values[raw], value > 0 { return value / 1000 }
         return nil
     }
 
@@ -643,6 +643,61 @@ enum RideSampling {
         guard maxCount > 1, points.count > maxCount else { return points }
         let step = Double(points.count - 1) / Double(maxCount - 1)
         return (0..<maxCount).map { points[min(points.count - 1, Int((Double($0) * step).rounded()))] }
+    }
+
+    /// 码表 `record.distance` 是累计里程。健康的累计类型按时间窗插值，一条覆盖休息的总量会被按未暂停比例削掉。
+    static func distanceIncrements(_ samples: [FITActivity.Sample]) -> [(DateInterval, Double)] {
+        var result: [(DateInterval, Double)] = []
+        var lastDate: Date?
+        var lastDistance: Double?
+        for sample in samples {
+            guard let distance = sample.distance, distance >= 0 else { continue }
+            if let lastDate, let lastDistance, sample.date > lastDate {
+                let delta = distance - lastDistance
+                if delta > 0 {
+                    result.append((DateInterval(start: lastDate, end: sample.date), delta))
+                }
+            }
+            lastDistance = distance
+            lastDate = sample.date
+        }
+        return result
+    }
+
+    static func restrictIncrements(_ increments: [(DateInterval, Double)], to moving: [DateInterval]) -> [(DateInterval, Double)] {
+        guard !moving.isEmpty else { return increments }
+        return increments.compactMap { interval, meters in
+            for window in moving {
+                let start = max(interval.start, window.start)
+                let end = min(interval.end, window.end)
+                if end > start {
+                    return (DateInterval(start: start, end: end), meters)
+                }
+            }
+            return nil
+        }
+    }
+
+    static func movingIntervals(start: Date, end: Date, events: [FITActivity.TimerEvent]) -> [DateInterval] {
+        var intervals: [DateInterval] = []
+        var cursor = start
+        var paused = false
+        for event in events {
+            guard event.date > start, event.date < end else { continue }
+            if event.paused, !paused {
+                if event.date > cursor {
+                    intervals.append(DateInterval(start: cursor, end: event.date))
+                }
+                paused = true
+            } else if !event.paused, paused {
+                cursor = event.date
+                paused = false
+            }
+        }
+        if !paused, end > cursor {
+            intervals.append(DateInterval(start: cursor, end: end))
+        }
+        return intervals.isEmpty ? [DateInterval(start: start, end: end)] : intervals
     }
 }
 

@@ -111,6 +111,14 @@ struct ContentView: View {
                 if let calories = activity.calories {
                     Metric("热量", "\(Int(calories)) kcal")
                 }
+                let cadenceCount = activity.samples.filter { ($0.cadence ?? 0) > 0 }.count
+                if cadenceCount > 0 {
+                    Metric("踏频", "\(cadenceCount) 点")
+                }
+                let powerCount = activity.samples.filter { $0.power != nil }.count
+                if powerCount > 0 {
+                    Metric("功率", "\(powerCount) 点")
+                }
             }
         }
         .card()
@@ -147,15 +155,20 @@ struct ContentView: View {
         RideLog.step("-autoImportDocuments", "端到端：从 App Documents 自动读取 FIT 并写入健康")
         let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let fits = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil))?
-            .filter { $0.pathExtension.lowercased() == "fit" } ?? []
-        guard let url = fits.first else {
+            .filter { $0.pathExtension.lowercased() == "fit" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
+        guard !fits.isEmpty else {
             RideLog.fail("-autoImportDocuments", "Documents 里没有 .fit")
             errorMessage = "Documents 里没有 FIT 文件。"
             return
         }
-        await load(url)
-        guard let activity else { return }
-        await save(activity)
+        for url in fits {
+            RideLog.step("-autoImportDocuments", "自动导入", extra: url.lastPathComponent)
+            await load(url)
+            guard let activity else { continue }
+            imported = false
+            await save(activity)
+        }
     }
     #endif
 

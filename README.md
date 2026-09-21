@@ -23,27 +23,42 @@ Cursor 侧已配置官方 Xcode MCP（`xcrun mcpbridge`）。Xcode → Settings 
 
 ## 实测文件
 
-`~/Downloads/ride-0-2026-09-20-20-19-33.fit`（iGPSPORT，FIT manufacturer `115`，product `302`，运动名 `Road Cycling`）：
+两份都是 iGPSPORT 户外公路骑行（sport 2，sub_sport 7）。放在 `~/Downloads/`，导入前拷进应用 Documents。
+
+### 1 号 `ride-0-2026-09-20-20-19-33.fit`
+
+manufacturer `115`，product `302`。未接心率带 / 踏频器 / 功率计。期望摘要：
+
+| 项 | 期望 |
+| --- | --- |
+| 距离 | 35.57 km |
+| 骑行时间 | 1:45:20（6320 s） |
+| 平均速度 | 20.2 km/h（码表一位小数；FIT `enhanced_avg_speed` 为 20.3 km/h / 5.628 m/s） |
+| 最大速度 | 36.7 km/h |
+| 累计爬升 | 142 m |
+| 热量 | 846 kcal |
+| 总耗时 | 2:34:29（9269 s） |
+| GPS | 6299 点 |
+| 圈段 | 7 × 5 km + 0.57 km |
+| 心率 / 踏频 / 功率 | 无，不写入 |
+
+### 2 号 `ride-0-2026-05-01-19-09-30.fit`
+
+manufacturer `115`，product `301`。数值不对齐 1 号，只用来补传感器字段。本文件 `enhanced_speed` 全为 0，速度回退到普通 `speed`。
 
 | 项 | 值 |
 | --- | --- |
-| 运动 | 骑行 / 公路（sport 2，sub_sport 7） |
-| 距离 | 35.57 km |
-| 骑行时间 `total_timer_time` | 1:45:20（6320 s） |
-| 总耗时 `total_elapsed_time` | 2:34:29（9269 s） |
-| 移动时间 `total_moving_time` | 与骑行时间相同 |
-| 平均 / 最大速度 | 20.3 / 36.7 km/h |
-| 爬升 / 下降 | 142 / 137 m |
-| 热量 | 846 kcal |
-| 环境温度 | 平均 24℃，最高 26℃ |
-| GPS record | 6299 / 6315 点（约 1 Hz） |
-| 圈段 | 7 × 5 km + 0.57 km |
-| 计时事件 | 73 条 pause / resume |
-| 心率 / 踏频 / 功率 | 本文件未接传感器，FIT 中为无效值，不写入 |
+| 开始 | 2026-05-01 19:09:30 |
+| 距离 | 42.37 km（不对齐 1 号） |
+| 骑行时间 / 总耗时 | 1:42:11 / 3:03:35 |
+| 心率 record | 508 点有效（约 106–174） |
+| 踏频 record | 712 点有效（约 21–92 rpm） |
+| 功率 record | 909 点（含滑行 0 W；峰值 516 W） |
+| GPS | 913 点 |
 
 ## FIT 里有什么，健康里写什么
 
-码表按 Garmin FIT 活动文件写。下面以这次公路骑行为准；接了心率带 / 踏频器 / 功率计时，对应采样会一并写入。
+码表按 Garmin FIT 活动文件写。1 号没有传感器；2 号有心率 / 踏频 / 功率时，对应采样会一并写入。
 
 ### 会写入健康的
 
@@ -53,8 +68,8 @@ Cursor 侧已配置官方 Xcode MCP（`xcrun mcpbridge`）。Xcode → Settings 
 | `start_time` + `total_elapsed_time` | 运动起止 | 总耗时是墙钟时间 |
 | `total_timer_time` + timer 事件 | 运动时长（不含暂停） | 健康用 pause/resume 还原真实骑行时间。没有 timer 事件时，把休息整段落在结束前 |
 | record `position_lat` / `position_long` / `altitude` / `speed` | **`HKWorkoutRoute` GPS 地图** | 半圆坐标转经纬度；高度 `value/5 - 500` 米 |
-| session `total_distance` | `distanceCycling` | 米，一条总量 |
-| record `enhanced_speed`（优先）或 `speed` | `cyclingSpeed` 采样 | 按 `speedInterval = 5` 每 5 个点取平均后再写入 |
+| session `total_distance` | `distanceCycling` | 按码表 record 累计里程的**增量**写入。不要写成一条覆盖休息的总量，健康会按未暂停时间把距离按比例切掉。GPS 折线只画路线，不参与距离 |
+| record `enhanced_speed`（优先，且必须 > 0）或 `speed` | `cyclingSpeed` 采样 | 按 `speedInterval = 5` 每 5 个点取平均后再写入。enhanced 为 0 时回退普通 speed（见 2 号文件） |
 | session `enhanced_avg_speed` / `enhanced_max_speed` | `HKMetadataKeyAverageSpeed` / `MaximumSpeed` | 也用于摘要 |
 | lap（本机 5 km 自动圈） | `HKWorkoutEvent.lap` | 圈事件不带速度 metadata（健康会崩溃）。圈均速在整场 `iGPSPORTLapAvgSpeedsKmh`。没有圈时按累计距离切 1 km |
 | session `total_calories` | `activeEnergyBurned` | 千卡 |
@@ -95,7 +110,7 @@ GPS 路线由 `HKWorkoutBuilder.seriesBuilder(for: .workoutRoute())` 收集点�
 swift test
 ```
 
-2026-09-21：解析测试通过，含真实 iGPSPORT 公路骑行文件，并拒绝非骑行 / 室内骑行。Xcode MCP 曾在 iPhone 18 Pro 模拟器（iOS 27）构建并启动；真机 iPhone 17 Pro Max 需连接后再导入验收路线。
+2026-09-21：解析测试覆盖 1 号公路骑行（35.57 km / 1:45:20 / 爬升 142 m / 846 kcal）和 2 号带心率、踏频、功率的骑行。Xcode MCP 用 iPhone 18 Pro Max 模拟器（iOS 27）验收；真机目标仍是 iPhone 17 Pro Max。
 
 ## 接口
 

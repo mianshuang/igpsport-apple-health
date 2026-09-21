@@ -109,6 +109,7 @@ private func persist(_ activity: FITActivity, store: HKHealthStore) async throws
         try Task.checkCancellation()
 
         routeBuilder = try await insertRoute(activity, to: builder, clock: &clock)
+        try await addDistance(activity, store: store, device: device, to: builder, clock: &clock)
         try await addTotals(activity, to: builder, clock: &clock)
 
         let rawSpeeds = activity.samples.compactMap { sample -> (Date, Double)? in
@@ -157,8 +158,14 @@ private func persist(_ activity: FITActivity, store: HKHealthStore) async throws
             RideLog.fail("finishWorkout()", "健康没有返回已保存的运动")
             throw ImportError.saveFailed
         }
+        let savedMeters = workout.totalDistance?.doubleValue(for: .meter())
+            ?? workout.statistics(for: HKQuantityType(.distanceCycling))?.sumQuantity()?.doubleValue(for: .meter())
         RideLog.ok("finishWorkout()", "运动已入库。附着的 GPS 路线一并保存并关联",
-                   extra: clock.extra("uuid=\(workout.uuid.uuidString)"))
+                   extra: clock.extra([
+                    "uuid=\(workout.uuid.uuidString)",
+                    savedMeters.map { "健康距离 \(RideLog.km($0))" },
+                    "运动时长 \(RideLog.hms(workout.duration))"
+                   ].compactMap { $0 }.joined(separator: "，")))
         if routeBuilder != nil {
             RideLog.skip("finishRoute(with:)", "iOS 明确拒绝：附着在 WorkoutBuilder 上的 route builder 会随 finishWorkout 完成。再调用会抛 Invalid Argument")
         }
@@ -204,30 +211,56 @@ private func insertRoute(_ activity: FITActivity, to builder: HKWorkoutBuilder,
     return route
 }
 
-private func addTotals(_ activity: FITActivity, to builder: HKWorkoutBuilder, clock: inout RideStageClock) async throws {
-    var samples: [HKSample] = []
-    if let distance = activity.distance {
-        samples.append(HKQuantitySample(type: HKQuantityType(.distanceCycling),
-                                        quantity: HKQuantity(unit: .meter(), doubleValue: distance),
-                                        start: activity.start, end: activity.end))
-        RideLog.step("distanceCycling", "写入整场骑行距离（一条总量，不是逐秒）", extra: RideLog.km(distance))
-    } else {
-        RideLog.skip("distanceCycling", "FIT 没有有效距离")
+private func addDistance(_ activity: FITActivity, store: HKHealthStore, device: HKDevice,
+                         to builder: HKWorkoutBuilder, clock: inout RideStageClock) async throws {
+    let increments = RideSampling.distanceIncrements(activity.samples)
+    let moving = RideSampling.movingIntervals(start: activity.start, end: activity.end, events: activity.timerEvents)
+    var points = RideSampling.restrictIncrements(increments, to: moving)
+    var incrementTotal = points.reduce(0.0) { $0 + $1.1 }
+    if let target = activity.distance, target - incrementTotal > 1, var last = points.last {
+        last.1 += target - incrementTotal
+        points[points.count - 1] = last
+        incrementTotal = target
     }
-    if let calories = activity.calories {
-        samples.append(HKQuantitySample(type: HKQuantityType(.activeEnergyBurned),
-                                        quantity: HKQuantity(unit: .kilocalorie(), doubleValue: calories),
-                                        start: activity.start, end: activity.end))
-        RideLog.step("activeEnergyBurned", "写入整场活动能量", extra: "\(Int(calories)) kcal")
-    } else {
-        RideLog.skip("activeEnergyBurned", "FIT 没有有效热量")
-    }
-    if samples.isEmpty {
-        RideLog.skip("addSamples(totals)", "没有距离/热量可写")
+    if !points.isEmpty {
+        RideLog.step("distanceCycling", "按码表累计里程的增量写入，避免一条总量被暂停时段按比例切掉",
+                     extra: "\(points.count) 段，合计 \(RideLog.km(incrementTotal))")
+        try await addCumulative(store: store, device: device, type: HKQuantityType(.distanceCycling),
+                                unit: .meter(), points: points, to: builder, clock: &clock,
+                                call: "distanceCycling", meaning: "骑行距离增量")
         return
     }
+    guard let distance = activity.distance else {
+        RideLog.skip("distanceCycling", "FIT 没有有效距离")
+        return
+    }
+    let intervals = moving
+    let movingTotal = max(intervals.reduce(0) { $0 + $1.duration }, 1)
+    let samples: [HKSample] = intervals.map { interval in
+        HKQuantitySample(type: HKQuantityType(.distanceCycling),
+                         quantity: HKQuantity(unit: .meter(), doubleValue: distance * interval.duration / movingTotal),
+                         start: interval.start, end: interval.end)
+    }
+    RideLog.step("distanceCycling", "没有逐点里程，按未暂停时段拆分 session 总距离", extra: RideLog.km(distance))
     try await builder.addSamples(samples)
-    RideLog.ok("addSamples(totals)", "距离/热量已加入本次运动", extra: clock.extra("\(samples.count) 条"))
+    RideLog.ok("distanceCycling", "已按骑行时段写入距离", extra: clock.extra("\(samples.count) 条"))
+}
+
+private func addTotals(_ activity: FITActivity, to builder: HKWorkoutBuilder, clock: inout RideStageClock) async throws {
+    guard let calories = activity.calories else {
+        RideLog.skip("activeEnergyBurned", "FIT 没有有效热量")
+        return
+    }
+    let intervals = RideSampling.movingIntervals(start: activity.start, end: activity.end, events: activity.timerEvents)
+    let moving = max(intervals.reduce(0) { $0 + $1.duration }, 1)
+    let samples: [HKSample] = intervals.map { interval in
+        HKQuantitySample(type: HKQuantityType(.activeEnergyBurned),
+                         quantity: HKQuantity(unit: .kilocalorie(), doubleValue: calories * interval.duration / moving),
+                         start: interval.start, end: interval.end)
+    }
+    RideLog.step("activeEnergyBurned", "按未暂停时段拆分活动能量，避免被休息比例切掉", extra: "\(Int(calories)) kcal，\(samples.count) 段")
+    try await builder.addSamples(samples)
+    RideLog.ok("addSamples(totals)", "热量已加入本次运动", extra: clock.extra("\(samples.count) 条"))
 }
 
 private func addSeries(store: HKHealthStore, device: HKDevice, type: HKQuantityType,
@@ -259,6 +292,49 @@ private func addSeries(store: HKHealthStore, device: HKDevice, type: HKQuantityT
         throw CancellationError()
     } catch {
         RideLog.fail("\(call).insert", "序列插入失败，丢弃该 series", extra: error.localizedDescription)
+        series.discard()
+        throw error
+    }
+    RideLog.step("\(call).finishSeries", "先完成数量序列，再把得到的 sample 加进 Workout")
+    let samples: [HKQuantitySample] = try await withCheckedThrowingContinuation { continuation in
+        series.finishSeries(metadata: nil) { samples, error in
+            if let error { continuation.resume(throwing: error) }
+            else { continuation.resume(returning: samples ?? []) }
+        }
+    }
+    if samples.isEmpty {
+        RideLog.skip("\(call).addSamples", "finishSeries 没有返回 sample")
+        return
+    }
+    try await builder.addSamples(samples)
+    RideLog.ok("\(call).addSamples", "该序列已挂到本次运动", extra: clock.extra("\(samples.count) 条 sample"))
+}
+
+private func addCumulative(store: HKHealthStore, device: HKDevice, type: HKQuantityType,
+                           unit: HKUnit, points: [(DateInterval, Double)], to builder: HKWorkoutBuilder,
+                           clock: inout RideStageClock, call: String, meaning: String) async throws {
+    guard let first = points.first else {
+        RideLog.skip(call, "\(meaning)。没有增量可写")
+        return
+    }
+    RideLog.step(call, meaning, extra: "\(points.count) 段，从 \(RideLog.date(first.0.start)) 开始")
+    let series = HKQuantitySeriesSampleBuilder(healthStore: store, quantityType: type, startDate: first.0.start, device: device)
+    do {
+        var last: Date?
+        var inserted = 0
+        for (interval, value) in points {
+            if inserted % 250 == 0 { try Task.checkCancellation() }
+            if let last, interval.start < last { continue }
+            last = interval.end
+            try series.insert(HKQuantity(unit: unit, doubleValue: value), for: interval)
+            inserted += 1
+        }
+        RideLog.ok("\(call).insert", "累计增量已写入 series builder", extra: "插入 \(inserted) 段")
+    } catch is CancellationError {
+        series.discard()
+        throw CancellationError()
+    } catch {
+        RideLog.fail("\(call).insert", "累计序列插入失败，丢弃该 series", extra: error.localizedDescription)
         series.discard()
         throw error
     }

@@ -111,6 +111,20 @@ final class FITParserTests: XCTestCase {
         XCTAssertEqual(laps[0].avgSpeed ?? 0, 5.273, accuracy: 0.0001)
     }
 
+    func testDistanceIncrementsMatchComputerMileage() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let samples = [0.0, 1_000.0, 1_000.0, 2_500.0].enumerated().map { index, distance in
+            FITActivity.Sample(date: start.addingTimeInterval(Double(index)), latitude: nil, longitude: nil,
+                               altitude: nil, speed: nil, cadence: nil, power: nil, distance: distance,
+                               heartRate: nil, temperature: nil, accuracy: nil)
+        }
+        let increments = RideSampling.distanceIncrements(samples)
+        XCTAssertEqual(increments.count, 2)
+        XCTAssertEqual(increments[0].1, 1_000, accuracy: 0.01)
+        XCTAssertEqual(increments[1].1, 1_500, accuracy: 0.01)
+        XCTAssertEqual(increments.reduce(0) { $0 + $1.1 }, 2_500, accuracy: 0.01)
+    }
+
     func testIgpsportRideFile() throws {
         let url = URL(fileURLWithPath: "/Users/mianshuang/Downloads/ride-0-2026-09-20-20-19-33.fit")
         try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path))
@@ -132,6 +146,62 @@ final class FITParserTests: XCTestCase {
         XCTAssertEqual(activity.laps[0].avgSpeed ?? 0, 5.273, accuracy: 0.01)
         XCTAssertFalse(activity.timerEvents.isEmpty)
         XCTAssertTrue(activity.heartRates.isEmpty)
+        XCTAssertEqual(activity.samples.filter { ($0.cadence ?? 0) > 0 }.count, 0)
+        XCTAssertEqual(activity.samples.filter { $0.power != nil }.count, 0)
+        let incrementTotal = RideSampling.distanceIncrements(activity.samples).reduce(0.0) { $0 + $1.1 }
+        XCTAssertEqual(incrementTotal, 35_570.4, accuracy: 1)
+        let moving = RideSampling.movingIntervals(start: activity.start, end: activity.end, events: activity.timerEvents)
+        var restricted = RideSampling.restrictIncrements(RideSampling.distanceIncrements(activity.samples), to: moving)
+        var clipped = restricted.reduce(0.0) { $0 + $1.1 }
+        if let last = restricted.indices.last, 35_570.4 - clipped > 1 {
+            restricted[last].1 += 35_570.4 - clipped
+            clipped = 35_570.4
+        }
+        XCTAssertEqual(clipped, 35_570.4, accuracy: 1)
+        XCTAssertGreaterThan(
+            RideSampling.movingIntervals(start: activity.start, end: activity.end, events: activity.timerEvents).count,
+            1
+        )
+        XCTAssertEqual((activity.avgSpeed ?? 0) * 3.6, 20.2608, accuracy: 0.01)
+        XCTAssertEqual((activity.maxSpeed ?? 0) * 3.6, 36.7092, accuracy: 0.05)
+    }
+
+    func testIgpsportRideFile2HasSensorsAndIgnoresZeroEnhancedSpeed() throws {
+        let url = URL(fileURLWithPath: "/Users/mianshuang/Downloads/ride-0-2026-05-01-19-09-30.fit")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: url.path))
+        var parser = FITParser(data: try Data(contentsOf: url))
+        let activity = try parser.parse()
+        XCTAssertEqual(activity.sport, 2)
+        XCTAssertEqual(activity.subSport, 7)
+        XCTAssertGreaterThanOrEqual(activity.heartRates.count, 400)
+        XCTAssertGreaterThanOrEqual(activity.samples.filter { ($0.cadence ?? 0) > 0 }.count, 400)
+        XCTAssertGreaterThanOrEqual(activity.samples.filter { ($0.power ?? -1) >= 0 }.count, 400)
+        XCTAssertEqual(activity.avgSpeed ?? 0, 6.910, accuracy: 0.001)
+        XCTAssertEqual(activity.maxSpeed ?? 0, 9.896, accuracy: 0.001)
+        XCTAssertGreaterThan(activity.samples.compactMap(\.speed).filter { $0 > 0 }.count, 400)
+        XCTAssertGreaterThanOrEqual(activity.locations.count, 800)
+    }
+
+    func testEnhancedSpeedZeroFallsBackToRaw() throws {
+        var payload = definition(local: 0, global: 20, fields: [
+            (253, 4, 0x86), (6, 2, 0x84), (73, 4, 0x86)
+        ])
+        payload += [0] + integer(1_100_000_000, 4) + integer(5_628, 2) + integer(0, 4)
+        let fields: [(UInt8, UInt8, UInt8)] = [
+            (2, 4, 0x86), (5, 1, 0), (7, 4, 0x86), (8, 4, 0x86), (9, 4, 0x86), (11, 2, 0x84),
+            (14, 2, 0x84), (15, 2, 0x84), (124, 4, 0x86), (125, 4, 0x86)
+        ]
+        payload += definition(local: 1, global: 18, fields: fields)
+        payload += [1] + integer(1_100_000_000, 4) + [2]
+        payload += integer(1_800_000, 4) + integer(1_800_000, 4)
+        payload += integer(1_250_000, 4) + integer(320, 2)
+        payload += integer(6_910, 2) + integer(9_896, 2)
+        payload += integer(0, 4) + integer(0, 4)
+        var parser = FITParser(data: wrap(payload))
+        let activity = try parser.parse()
+        XCTAssertEqual(activity.avgSpeed ?? 0, 6.910, accuracy: 0.001)
+        XCTAssertEqual(activity.maxSpeed ?? 0, 9.896, accuracy: 0.001)
+        XCTAssertEqual(activity.samples[0].speed ?? 0, 5.628, accuracy: 0.001)
     }
 
     func testSpeedDownsampleAveragesEveryInterval() {
