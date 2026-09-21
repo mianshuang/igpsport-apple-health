@@ -26,7 +26,7 @@ struct ContentView: View {
     @State private var metsBusy = false
     @State private var queryPassFinished = false
     @State private var filename = ""
-    @State private var workoutName = "户外骑行"
+    @State private var workoutName = WorkoutDisplay.defaultName
     @State private var wait: WaitState?
     @State private var importing = false
     @State private var imported = false
@@ -37,6 +37,12 @@ struct ContentView: View {
     @State private var writeOutcomeUncertain = false
 
     private var busy: Bool { wait != nil || importing || weatherBusy || metsBusy }
+
+    private var appVersionLabel: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        return "\(version) (\(build))"
+    }
 
     var body: some View {
         NavigationStack {
@@ -56,28 +62,35 @@ struct ContentView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(appVersionLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                     if let wait {
                         WaitBanner(state: wait)
                     }
 
                     if let activity, wait?.kind != .reading {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("运动名称").font(.caption).foregroundStyle(.secondary)
-                            TextField("户外骑行", text: $workoutName)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.body)
-                                .submitLabel(.done)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .disabled(importing || imported)
-                                .onSubmit { workoutName = WorkoutDisplay.name(workoutName) }
-                                .accessibilityLabel("运动名称")
-                            if !filename.isEmpty {
-                                Text(filename)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                        HStack(alignment: .top, spacing: 12) {
+                            OutdoorCycleGlyph()
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("运动名称").font(.caption).foregroundStyle(.secondary)
+                                TextField(WorkoutDisplay.defaultName, text: $workoutName)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.body)
+                                    .submitLabel(.done)
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    .disabled(importing || imported)
+                                    .onSubmit { workoutName = WorkoutDisplay.name(workoutName) }
+                                    .accessibilityLabel("运动名称")
+                                if !filename.isEmpty {
+                                    Text(filename)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
                             }
                         }
                         .card()
@@ -266,7 +279,7 @@ struct ContentView: View {
         let token = UUID()
         routeToken = token
         activity = nil
-        workoutName = "户外骑行"
+        workoutName = WorkoutDisplay.defaultName
         mapLocations = []
         snapshot = EnrichmentSnapshot()
         queryPassFinished = false
@@ -456,6 +469,17 @@ private struct WaitBanner: View {
             }
             .card()
         }
+    }
+}
+
+private struct OutdoorCycleGlyph: View {
+    var body: some View {
+        Image(systemName: "figure.outdoor.cycle")
+            .font(.title2)
+            .foregroundStyle(.white)
+            .frame(width: 44, height: 44)
+            .background(Circle().fill(.orange))
+            .accessibilityLabel("户外单车")
     }
 }
 

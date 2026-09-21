@@ -23,7 +23,7 @@
 
 Cursor 侧已配置官方 Xcode MCP（`xcrun mcpbridge`）。Xcode → Settings → Intelligence 中打开 “Allow external agents to use Xcode tools”。
 
-选择 FIT 文件后会出现运动名称输入，默认为「户外骑行」，写入 Fitness 的标题；点「写入 Apple 健康」，允许本次涉及的写入类型，并允许读取体能消耗（MET）。读取、路线预览和写入都会显示预估耗时；授权约 75 秒、写入按 GPS 点数放宽到最多 90 秒，超时即停止等待。应用的 Documents 会显示在「文件 → 我的 iPhone → iGPS to Health」。写入前会列出天气和平均强度的查询结果，平均强度置顶、温度第二，其余缺失项后排；底部「重试」重新查询天气；写入后清单隐藏。导入后到健康 / Fitness 的这条骑行记录里核对标题、图标、路线、天气和平均强度。请勿重复导入同一文件。旧记录若标题仍是 IGPSPORT、图标空白，需要重新导入；已写入的记录不会被改写。
+选择 FIT 文件后会出现运动名称输入，默认为「户外单车」，左侧是系统户外骑行符号。点「写入 Apple 健康」，允许本次涉及的写入类型，并允许读取体能消耗（MET）。读取、路线预览和写入都会显示预估耗时；授权约 75 秒、写入按 GPS 点数放宽到最多 90 秒，超时即停止等待。应用的 Documents 会显示在「文件 → 我的 iPhone → iGPS to Health」。写入前会列出天气和平均强度的查询结果，平均强度置顶、温度第二，其余缺失项后排；底部「重试」重新查询天气；写入后清单隐藏。导入后到健康 / Fitness 的这条骑行记录里核对标题、图标、路线、天气和平均强度。请勿重复导入同一文件。旧记录若标题仍是 IGPSPORT、图标空白，需要重新导入；已写入的记录不会被改写。不要写 `HKMetadataKeyWorkoutBrandName`。Fitness 的第三方来源方标来自 App Store / 合作品牌目录，未上架开发包常为空白，HealthKit 不能写入一张默认图。本应用用系统 `figure.outdoor.cycle` 保证名称旁图标不为空。
 
 天气使用 Open-Meteo 免费非商业 API，无需注册或密钥。近 7 天使用 `https://api.open-meteo.com/v1/forecast`，更早使用 `https://archive-api.open-meteo.com/v1/archive`。仅请求 `temperature_2m,relative_humidity_2m,weather_code,surface_pressure`；选骑行墙钟中点附近的 GPS 点与最近一小时（最多相差 30 分钟），不下载整条天气轨迹。应用内预览把湿度收成 0–1；写入 HealthKit 时按百分数点（81 表示 81%），因为 Fitness 把 `percent` 的 doubleValue 直接显示成湿度。气压采用地面气压 hPa，WMO 天气码映射到 HealthKit。缺失字段不写入，温度可回退码表。
 
@@ -88,7 +88,7 @@ manufacturer `115`，product `301`。数值不对齐 1 号，只用来补传感�
 | session `avg_temperature` | `HKMetadataKeyWeatherTemperature` | 仅当 Open-Meteo 没补到温度时，才用码表环境温度 |
 | 骑行中点时间 + GPS | `HKMetadataKeyWeatherTemperature` / `Humidity` / `Condition` / `BarometricPressure` | Open-Meteo 查中点那一小时，作为整场环境。不查天气曲线。湿度按百分数点写入 |
 | FIT 时间范围 + timer-running | `HKMetadataKeyAverageMETs` | 优先时间加权 Apple Watch `physicalEffort`；没有 Watch 样本时用码表速度按 Compendium 回退。暂停不计入 |
-| 界面「运动名称」 | `HKMetadataKeyWorkoutBrandName` | Fitness 可编辑标题。默认「户外骑行」。来源是本应用，不伪造 iGPSPORT `HKDevice`，否则 Fitness 会去加载不存在的品牌图标 |
+| 界面「运动名称」 | 私有 `iGPSPORTWorkoutName` | 默认「户外单车」，界面用系统户外骑行符号。不写 `HKMetadataKeyWorkoutBrandName`。整场加一条室外骑行 `HKWorkoutActivity`。Fitness 第三方来源方标无法用默认图填上 |
 
 ### FIT 有、健康没有对应类型（不写）
 

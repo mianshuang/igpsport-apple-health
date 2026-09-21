@@ -82,6 +82,7 @@
 				BCE16DD0260827ECF338C787 /* Sources */,
 				7561BFB015D8F536760CB671 /* Frameworks */,
 				0189424A5A60FED329FA868E /* Resources */,
+				A1C0N3X00000000000000001 /* Copy AppIcon 3x */,
 			);
 			buildRules = (
 			);
@@ -140,6 +141,32 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		A1C0N3X00000000000000001 /* Copy AppIcon 3x */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/FITHealth/Assets.xcassets/AppIcon.appiconset/AppIcon-60@3x.png",
+				"$(SRCROOT)/FITHealth/Assets.xcassets/AppIcon.appiconset/AppIcon-Light.png",
+			);
+			name = "Copy AppIcon 3x";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/AppIcon60x60@3x.png",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/AppIcon1024x1024.png",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "DEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\ncp \"${SRCROOT}/FITHealth/Assets.xcassets/AppIcon.appiconset/AppIcon-60@3x.png\" \"${DEST}/AppIcon60x60@3x.png\"\ncp \"${SRCROOT}/FITHealth/Assets.xcassets/AppIcon.appiconset/AppIcon-Light.png\" \"${DEST}/AppIcon1024x1024.png\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		BCE16DD0260827ECF338C787 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -164,7 +191,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = FB7YUJA97R;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CURRENT_PROJECT_VERSION = 2;
+				ASSETCATALOG_COMPILER_STANDALONE_ICON_BEHAVIOR = all;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FITHealth/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "iGPS to Health";
@@ -192,7 +220,8 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = FB7YUJA97R;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CURRENT_PROJECT_VERSION = 2;
+				ASSETCATALOG_COMPILER_STANDALONE_ICON_BEHAVIOR = all;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FITHealth/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "iGPS to Health";

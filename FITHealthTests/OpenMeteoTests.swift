@@ -4,7 +4,11 @@ import XCTest
 final class OpenMeteoTests: XCTestCase {
     func testWorkoutDisplayMetadata() {
         XCTAssertEqual(WorkoutDisplay.name("  晚间骑行  "), "晚间骑行")
-        XCTAssertEqual(WorkoutDisplay.name(" \n "), "户外骑行")
+        XCTAssertEqual(WorkoutDisplay.defaultName, "户外单车")
+        XCTAssertEqual(WorkoutDisplay.name(" \n "), "户外单车")
+        let stored = WorkoutDisplay.healthMetadata(name: "  晚间骑行  ")
+        XCTAssertEqual(stored[WorkoutDisplay.nameMetadataKey] as? String, "晚间骑行")
+        XCTAssertNil(stored["HKWorkoutBrandName"])
         XCTAssertEqual(WorkoutDisplay.humidityPercent(0.81), 81)
         XCTAssertEqual(WorkoutDisplay.humidityPercent(0.815), 82)
         XCTAssertEqual(WorkoutDisplay.humidityPercent(0), 0)

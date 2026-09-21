@@ -104,9 +104,19 @@ enum OpenMeteo {
 /// `HKMetadataKeyWeatherHumidity` as percentage points (Apple Watch samples
 /// store 36% as percent doubleValue 36, which prints as "3600 %").
 enum WorkoutDisplay {
+    static let defaultName = "户外单车"
+    /// Private HealthKit metadata. Fitness uses `HKMetadataKeyWorkoutBrandName`
+    /// as a partner-brand lookup, not as a workout title. Omit BrandName so
+    /// Fitness falls back to the system outdoor-cycling glyph.
+    static let nameMetadataKey = "iGPSPORTWorkoutName"
+
     static func name(_ input: String) -> String {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "户外骑行" : trimmed
+        return trimmed.isEmpty ? defaultName : trimmed
+    }
+
+    static func healthMetadata(name input: String) -> [String: Any] {
+        [nameMetadataKey: name(input)]
     }
 
     static func humidityPercent(_ fraction: Double?) -> Double? {
