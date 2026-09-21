@@ -81,7 +81,7 @@ manufacturer `115`，product `301`。数值不对齐 1 号，只用来补传感�
 | session `enhanced_avg_speed` / `enhanced_max_speed` | `HKMetadataKeyAverageSpeed` / `MaximumSpeed` | 也用于摘要 |
 | lap（本机 5 km 自动圈） | `HKWorkoutEvent.lap` | 圈事件不带速度 metadata（健康会崩溃）。圈均速在整场 `iGPSPORTLapAvgSpeedsKmh`。没有圈时按累计距离切 1 km |
 | session `total_calories` | `activeEnergyBurned` | 千卡 |
-| record `heart_rate` | `heartRate` | 有心率带才有 |
+| record `heart_rate` | `heartRate` | 该时段已有 Apple Watch 心率时，只把已有样本挂到这次骑行，不另写一份。没有 Watch 心率、码表有心率带时才写入码表采样 |
 | record `cadence` | `cyclingCadence` | 有踏频传感器才有 |
 | record `power` | `cyclingPower` | 有功率计才有 |
 | session `total_ascent` / `total_descent` | `HKMetadataKeyElevationAscended` / `ElevationDescended` | 米 |
@@ -112,7 +112,7 @@ GPS 路线由 `HKWorkoutBuilder.seriesBuilder(for: .workoutRoute())` 收集点�
 - `FITHealth/ContentView.swift`：选文件、摘要、Apple 地图路线、查询补全清单、等待/超时、写入
 - `FITHealth/Core/FITParser.swift`：FIT 二进制解析，以及天气中点 / 时间加权 MET 计算
 - `FITHealth/HealthImporter.swift`：HealthKit 授权及保存
-- `FITHealth/WorkoutEnrichment.swift`：Open-Meteo 中点天气、读取 Watch MET
+- `FITHealth/WorkoutEnrichment.swift`：Open-Meteo 中点天气、读取 Watch MET、查询时段内 Watch 心率
 - `FITHealthTests/FITParserTests.swift`：解析测试，可在 Mac 上跑
 
 ## 验证

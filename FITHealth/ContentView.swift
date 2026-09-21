@@ -73,9 +73,12 @@ struct ContentView: View {
                                 .disabled(importing || imported)
                                 .onSubmit { workoutName = WorkoutDisplay.name(workoutName) }
                                 .accessibilityLabel("运动名称")
-                            Text("写入后作为 Fitness 里这条骑行的标题。")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                            if !filename.isEmpty {
+                                Text(filename)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
                         .card()
                         summaryCard(activity)
@@ -166,10 +169,6 @@ struct ContentView: View {
     @ViewBuilder
     private func summaryCard(_ activity: FITActivity) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(filename)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 14) {
                 Metric("骑行时间", hms(activity.duration))
                 Metric("总耗时", hms(activity.elapsed))
@@ -224,10 +223,10 @@ struct ContentView: View {
                 if !imported {
                     Text(RideTiming.secondsLabel(estimate))
                         .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(Color("OnAccent").opacity(0.75))
+                        .opacity(0.75)
                 }
             }
-            .foregroundStyle(Color("OnAccent"))
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
@@ -328,12 +327,13 @@ struct ContentView: View {
         metsBusy = true
         queryPassFinished = false
         async let weather = importer.fetchWeather(for: activity)
-        async let mets = importer.fetchMETs(for: activity)
+        async let health = importer.fetchHealth(for: activity)
         let weatherResult = await weather
-        let metsResult = await mets
+        let (metsResult, heartRateResult) = await health
         guard routeToken == token else { return }
         snapshot.weather = weatherResult
         snapshot.mets = metsResult
+        snapshot.heartRate = heartRateResult
         weatherBusy = false
         metsBusy = false
         queryPassFinished = true
@@ -496,18 +496,16 @@ private struct QueryChecklist: View {
                     .foregroundStyle(.secondary)
                     .fixedSize()
                 Spacer(minLength: 0)
-                HStack(spacing: 5) {
-                    Link("Weather data by Open-Meteo", destination: URL(string: "https://open-meteo.com/")!)
-                    Text("·").foregroundStyle(.tertiary)
-                    Link("CC BY 4.0", destination: URL(string: "https://creativecommons.org/licenses/by/4.0/")!)
-                }
-                .font(.system(size: 10))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                Text("Weather data by Open-Meteo · CC BY 4.0")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                       alignment: .leading, spacing: 16) {
                 row(title: "平均强度", value: metsText, ok: snapshot.mets.value != nil, busy: metsBusy)
+                row(title: "心率", value: heartText, ok: heartOK, busy: metsBusy)
                 row(title: "天气温度", value: temperatureText, ok: willWriteTemperature, busy: weatherBusy)
                 ForEach(otherWeatherRows, id: \.title) { item in
                     row(title: item.title, value: item.value, ok: item.ok, busy: weatherBusy)
@@ -573,6 +571,20 @@ private struct QueryChecklist: View {
             return String(format: "%.1f MET · %@", value, snapshot.mets.fromWatch ? "Watch" : "速度回退")
         }
         return snapshot.mets.error
+    }
+
+    private var heartOK: Bool {
+        snapshot.heartRate.willAssociateWatch || !activity.heartRates.isEmpty
+    }
+
+    private var heartText: String? {
+        if snapshot.heartRate.willAssociateWatch {
+            return "Watch \(snapshot.heartRate.watchCount) 点，将关联"
+        }
+        if !activity.heartRates.isEmpty {
+            return "码表 \(activity.heartRates.count) 点"
+        }
+        return snapshot.heartRate.error ?? "暂无数据"
     }
 
     @ViewBuilder

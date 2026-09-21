@@ -169,7 +169,7 @@
 				INFOPLIST_FILE = FITHealth/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "iGPS to Health";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "读取 Apple Watch 在本次骑行时段记录的体能消耗（MET），用来写入平均强度。不读取其它健康数据。";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "读取本次骑行时段内 Apple Watch 已写入的体能消耗（MET）和心率，用来计算平均强度并把已有心率挂到这次运动。不会再写入一份心率。不读取其它健康数据。";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "将 iGPSPORT 户外骑行的路线、距离、速度、圈段、热量和心率写入 Apple 健康。";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "按骑行 GPS 中点查询当时天气，写入健康运动记录。不使用持续定位。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -197,7 +197,7 @@
 				INFOPLIST_FILE = FITHealth/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "iGPS to Health";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "读取 Apple Watch 在本次骑行时段记录的体能消耗（MET），用来写入平均强度。不读取其它健康数据。";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "读取本次骑行时段内 Apple Watch 已写入的体能消耗（MET）和心率，用来计算平均强度并把已有心率挂到这次运动。不会再写入一份心率。不读取其它健康数据。";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "将 iGPSPORT 户外骑行的路线、距离、速度、圈段、热量和心率写入 Apple 健康。";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "按骑行 GPS 中点查询当时天气，写入健康运动记录。不使用持续定位。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

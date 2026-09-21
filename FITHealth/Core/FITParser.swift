@@ -120,6 +120,15 @@ enum FITError: LocalizedError, Equatable {
     }
 }
 
+enum AppleWatchSource {
+    static func matches(productType: String?, deviceName: String?, deviceModel: String?) -> Bool {
+        if let productType, productType.hasPrefix("Watch") { return true }
+        if let deviceModel, deviceModel.hasPrefix("Watch") { return true }
+        guard let deviceName, !deviceName.isEmpty else { return false }
+        return deviceName.range(of: "Apple Watch", options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }
+}
+
 enum RideLog {
     static var enabled: Bool {
         #if os(iOS)

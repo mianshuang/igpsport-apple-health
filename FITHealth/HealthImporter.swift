@@ -19,18 +19,11 @@ final class HealthImporter {
         await WorkoutEnrichment.weather(for: activity)
     }
 
-    func fetchMETs(for activity: FITActivity) async -> EnrichmentSnapshot.METs {
-        if HKHealthStore.isHealthDataAvailable() {
-            do {
-                try await withTimeout(RideTiming.authorizeTimeout) {
-                    try await self.store.requestAuthorization(toShare: [], read: [self.effortType])
-                }
-            } catch {
-                RideLog.skip("requestAuthorization(read: physicalEffort)", "读取 Watch MET 授权未完成，改用速度回退",
-                             extra: error.localizedDescription)
-            }
-        }
-        return await WorkoutEnrichment.mets(for: activity, store: store)
+    func fetchHealth(for activity: FITActivity) async -> (EnrichmentSnapshot.METs, EnrichmentSnapshot.HeartRate) {
+        await authorizeRead()
+        async let mets = WorkoutEnrichment.mets(for: activity, store: store)
+        async let heartRate = WorkoutEnrichment.heartRateLink(for: activity, store: store)
+        return await (mets, heartRate)
     }
 
     func save(_ activity: FITActivity, enrichment: EnrichmentSnapshot, workoutName: String = "户外骑行",
@@ -42,13 +35,15 @@ final class HealthImporter {
             throw ImportError.unavailable
         }
         RideLog.ok("isHealthDataAvailable", "健康可用")
-        let types = shareTypes(activity)
-        RideLog.step("requestAuthorization(toShare:read:)", "申请写入本次骑行，并读取 Watch 体能消耗（MET）",
-                     extra: "写入 \(types.map(typeName).sorted().joined(separator: "、"))；读取 physicalEffort")
+        await authorizeRead()
+        let watchHeartRate = await WorkoutEnrichment.watchHeartRateSamples(for: activity, store: store)
+        let types = shareTypes(activity, includeHeartRate: !watchHeartRate.isEmpty || !activity.heartRates.isEmpty)
+        RideLog.step("requestAuthorization(toShare:read:)", "申请写入本次骑行，并读取 Watch MET 与心率",
+                     extra: "写入 \(types.map(typeName).sorted().joined(separator: "、"))；读取 physicalEffort、heartRate")
         onPhase(.authorizing)
         do {
             try await withTimeout(RideTiming.authorizeTimeout) {
-                try await self.store.requestAuthorization(toShare: types, read: [self.effortType])
+                try await self.store.requestAuthorization(toShare: types, read: [self.effortType, self.heartType])
             }
         } catch RideWaitError.timedOut(let seconds) {
             RideLog.fail("requestAuthorization", "等待授权超时", extra: RideTiming.secondsLabel(seconds))
@@ -82,7 +77,8 @@ final class HealthImporter {
         let store = self.store
         do {
             try await withTimeout(timeout) {
-                try await persist(activity, store: store, enrichment: enrichment, workoutName: workoutName)
+                try await persist(activity, store: store, enrichment: enrichment, workoutName: workoutName,
+                                  watchHeartRate: watchHeartRate)
             }
         } catch RideWaitError.timedOut(let seconds) {
             RideLog.fail("persist", "写入超时", extra: RideTiming.secondsLabel(seconds))
@@ -93,20 +89,32 @@ final class HealthImporter {
         }
     }
 
-    private func shareTypes(_ activity: FITActivity) -> Set<HKSampleType> {
+    private func shareTypes(_ activity: FITActivity, includeHeartRate: Bool) -> Set<HKSampleType> {
         var types: Set<HKSampleType> = [HKObjectType.workoutType()]
         if activity.calories != nil { types.insert(energyType) }
         if activity.distance != nil { types.insert(distanceType) }
-        if !activity.heartRates.isEmpty { types.insert(heartType) }
+        if includeHeartRate { types.insert(heartType) }
         if activity.samples.contains(where: { $0.speed != nil }) { types.insert(speedType) }
         if activity.samples.contains(where: { $0.cadence != nil }) { types.insert(cadenceType) }
         if activity.samples.contains(where: { $0.power != nil }) { types.insert(powerType) }
         if activity.locations.count >= 2 { types.insert(HKSeriesType.workoutRoute()) }
         return types
     }
+
+    private func authorizeRead() async {
+        guard HKHealthStore.isHealthDataAvailable() else { return }
+        do {
+            try await withTimeout(RideTiming.authorizeTimeout) {
+                try await self.store.requestAuthorization(toShare: [], read: [self.effortType, self.heartType])
+            }
+        } catch {
+            RideLog.skip("requestAuthorization(read:)", "读取 Watch MET / 心率授权未完成", extra: error.localizedDescription)
+        }
+    }
 }
 
-private func persist(_ activity: FITActivity, store: HKHealthStore, enrichment: EnrichmentSnapshot, workoutName: String) async throws {
+private func persist(_ activity: FITActivity, store: HKHealthStore, enrichment: EnrichmentSnapshot, workoutName: String,
+                     watchHeartRate: [HKQuantitySample]) async throws {
     try Task.checkCancellation()
     var clock = RideStageClock()
     let meterPerSecond = HKUnit.meter().unitDivided(by: .second())
@@ -145,9 +153,8 @@ private func persist(_ activity: FITActivity, store: HKHealthStore, enrichment: 
         try await addSeries(store: store, type: HKQuantityType(.cyclingSpeed),
                             unit: meterPerSecond, points: speeds, to: builder, clock: &clock,
                             call: "cyclingSpeed", meaning: "写入稀释后的骑行速度曲线，单位 m/s")
-        try await addSeries(store: store, type: HKQuantityType(.heartRate),
-                            unit: rpm, points: activity.heartRates.map { ($0.date, $0.bpm) }, to: builder, clock: &clock,
-                            call: "heartRate", meaning: "写入心率采样；没有心率带则为空")
+        let associatedWatchHeartRate = try await addHeartRate(activity, watchHeartRate: watchHeartRate, store: store,
+                                                              unit: rpm, to: builder, clock: &clock)
         try await addSeries(store: store, type: HKQuantityType(.cyclingCadence),
                             unit: rpm, points: activity.samples.compactMap { sample in
             guard let cadence = sample.cadence, cadence > 0 else { return nil }
@@ -191,6 +198,16 @@ private func persist(_ activity: FITActivity, store: HKHealthStore, enrichment: 
                    ].compactMap { $0 }.joined(separator: "，")))
         if routeBuilder != nil {
             RideLog.skip("finishRoute(with:)", "iOS 明确拒绝：附着在 WorkoutBuilder 上的 route builder 会随 finishWorkout 完成。再调用会抛 Invalid Argument")
+        }
+        if !watchHeartRate.isEmpty, !associatedWatchHeartRate {
+            RideLog.step("HKHealthStore.addSamples", "builder 未挂上 Watch 心率，运动入库后再关联已有样本")
+            do {
+                try await store.addSamples(watchHeartRate, to: workout)
+                RideLog.ok("HKHealthStore.addSamples", "已把 Watch 心率挂到本次骑行", extra: clock.extra("\(watchHeartRate.count) 条"))
+            } catch {
+                RideLog.skip("HKHealthStore.addSamples", "关联 Watch 心率未完成，仍未写入新的心率样本",
+                             extra: error.localizedDescription)
+            }
         }
         RideLog.ok("persist", "本次户外骑行已写入健康", extra: clock.extra())
     } catch is CancellationError {
@@ -286,6 +303,38 @@ private func addTotals(_ activity: FITActivity, to builder: HKWorkoutBuilder, cl
     try Task.checkCancellation()
     try await builder.addSamples(samples)
     RideLog.ok("addSamples(totals)", "热量已加入本次运动", extra: clock.extra("\(samples.count) 条"))
+}
+
+private func addHeartRate(_ activity: FITActivity, watchHeartRate: [HKQuantitySample], store: HKHealthStore,
+                          unit: HKUnit, to builder: HKWorkoutBuilder, clock: inout RideStageClock) async throws -> Bool {
+    if !watchHeartRate.isEmpty {
+        RideLog.step("addSamples(heartRate)", "该时段已有 Apple Watch 心率，只关联已有样本，不另写一份",
+                     extra: "\(watchHeartRate.count) 条")
+        do {
+            let size = 1000
+            var index = 0
+            var associated = 0
+            while index < watchHeartRate.count {
+                try Task.checkCancellation()
+                let end = min(index + size, watchHeartRate.count)
+                try await builder.addSamples(Array(watchHeartRate[index..<end]))
+                associated += end - index
+                index = end
+            }
+            RideLog.ok("addSamples(heartRate)", "已把 Watch 心率挂到本次骑行", extra: clock.extra("\(associated) 条"))
+            return true
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            RideLog.skip("addSamples(heartRate)", "关联 Watch 心率未完成，仍不写入码表心率，避免重复",
+                         extra: error.localizedDescription)
+            return false
+        }
+    }
+    try await addSeries(store: store, type: HKQuantityType(.heartRate),
+                        unit: unit, points: activity.heartRates.map { ($0.date, $0.bpm) }, to: builder, clock: &clock,
+                        call: "heartRate", meaning: "写入码表心率采样；没有心率带则为空")
+    return false
 }
 
 private func addSeries(store: HKHealthStore, type: HKQuantityType,

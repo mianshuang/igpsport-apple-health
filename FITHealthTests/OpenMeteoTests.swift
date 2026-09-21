@@ -15,6 +15,14 @@ final class OpenMeteoTests: XCTestCase {
         XCTAssertNil(WorkoutDisplay.humidityPercent(nil))
     }
 
+    func testAppleWatchSource() {
+        XCTAssertTrue(AppleWatchSource.matches(productType: "Watch7,11", deviceName: nil, deviceModel: nil))
+        XCTAssertTrue(AppleWatchSource.matches(productType: nil, deviceName: nil, deviceModel: "Watch6,1"))
+        XCTAssertTrue(AppleWatchSource.matches(productType: nil, deviceName: "Apple Watch", deviceModel: nil))
+        XCTAssertFalse(AppleWatchSource.matches(productType: "iPhone18,2", deviceName: "iPhone", deviceModel: "iPhone18,2"))
+        XCTAssertFalse(AppleWatchSource.matches(productType: nil, deviceName: nil, deviceModel: nil))
+    }
+
     func testRoutingAndUTCDateBoundary() throws {
         let date = Date(timeIntervalSince1970: 86400 - 600)
         let recent = OpenMeteo.url(date: date, latitude: 30, longitude: 110, now: date)

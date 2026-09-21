@@ -17,8 +17,15 @@ struct EnrichmentSnapshot: Sendable {
         var error: String?
     }
 
+    struct HeartRate: Sendable {
+        var watchCount = 0
+        var error: String?
+        var willAssociateWatch: Bool { watchCount > 0 }
+    }
+
     var weather = Weather()
     var mets = METs(value: nil, fromWatch: false, error: nil)
+    var heartRate = HeartRate()
 }
 
 enum WorkoutEnrichment {
@@ -85,6 +92,44 @@ enum WorkoutEnrichment {
                    result.fromWatch ? "按 timer-running 对 Watch MET 做时间加权" : "没有 Watch MET，用码表速度按 Compendium 回退",
                    extra: String(format: "%.2f METs，%d 个 Watch 样本", result.value, watch.count))
         return EnrichmentSnapshot.METs(value: result.value, fromWatch: result.fromWatch, error: nil)
+    }
+
+    static func heartRateLink(for activity: FITActivity, store: HKHealthStore) async -> EnrichmentSnapshot.HeartRate {
+        let samples = await watchHeartRateSamples(for: activity, store: store)
+        if samples.isEmpty {
+            RideLog.skip("heartRate", "该时段没有 Apple Watch 心率，码表有心率时才写入")
+        } else {
+            RideLog.ok("heartRate", "该时段已有 Apple Watch 心率，导入时只关联、不另写", extra: "\(samples.count) 条")
+        }
+        return EnrichmentSnapshot.HeartRate(watchCount: samples.count)
+    }
+
+    static func watchHeartRateSamples(for activity: FITActivity, store: HKHealthStore) async -> [HKQuantitySample] {
+        do {
+            return try await withTimeout(metsTimeout) {
+                try await queryWatchHeartRate(for: activity, store: store)
+            }
+        } catch {
+            RideLog.skip("heartRate", "读取 Watch 心率失败", extra: error.localizedDescription)
+            return []
+        }
+    }
+
+    private static func queryWatchHeartRate(for activity: FITActivity, store: HKHealthStore) async throws -> [HKQuantitySample] {
+        let type = HKQuantityType(.heartRate)
+        let predicate = HKQuery.predicateForSamples(withStart: activity.start, end: activity.end, options: .strictStartDate)
+        let descriptor = HKSampleQueryDescriptor(
+            predicates: [.quantitySample(type: type, predicate: predicate)],
+            sortDescriptors: [SortDescriptor(\.startDate, order: .forward)]
+        )
+        return try await descriptor.result(for: store).filter { sample in
+            guard sample.startDate >= activity.start, sample.startDate <= activity.end else { return false }
+            return AppleWatchSource.matches(
+                productType: sample.sourceRevision.productType,
+                deviceName: sample.device?.name,
+                deviceModel: sample.device?.model
+            )
+        }
     }
 
     static func healthMetadata(_ snapshot: EnrichmentSnapshot) -> [String: Any] {
