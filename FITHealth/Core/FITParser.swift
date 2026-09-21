@@ -107,9 +107,10 @@ struct FITActivity: Sendable {
 }
 
 enum FITError: LocalizedError, Equatable {
-    case invalidFile, corrupted, missingSession, multipleSessions, notOutdoorCycling
+    case invalidFile, corrupted, missingSession, multipleSessions, notOutdoorCycling, resourceLimit
     var errorDescription: String? {
         switch self {
+        case .resourceLimit: "文件过大或记录过多，初版支持不超过 8 MB、10 万个采样点的单次骑行。"
         case .invalidFile: "无法读取这个 FIT 文件，请选择 iGPSPORT 导出的原始 .fit 文件。"
         case .corrupted: "FIT 文件不完整或校验失败，请重新导出。"
         case .missingSession: "文件中没有完整的骑行记录。"
@@ -188,14 +189,9 @@ enum RideTiming {
         min(max(Double(points) / 9_000 + 0.6, 1), 6)
     }
 
-    static let enrichmentEstimate: TimeInterval = 8
-
     static func persistEstimate(gps: Int, speedSamples: Int, events: Int) -> TimeInterval {
-        let seconds = 2.2 + enrichmentEstimate
-            + Double(gps) / 5_500
-            + Double(speedSamples) / Double(RideSampling.speedInterval) / 3_500
-            + Double(events) / 120
-        return min(max(seconds, 6), 50)
+        let seconds = 2.2 + Double(gps) / 5_500 + Double(speedSamples) / Double(RideSampling.speedInterval) / 3_500 + Double(events) / 120
+        return min(max(seconds, 2), 45)
     }
 
     static func persistEstimate(activity: FITActivity) -> TimeInterval {
@@ -236,16 +232,90 @@ enum RideWaitError: LocalizedError, Equatable {
     }
 }
 
-func withTimeout<T: Sendable>(_ seconds: TimeInterval, operation: @escaping @Sendable () async throws -> T) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask { try await operation() }
-        group.addTask {
-            try await Task.sleep(nanoseconds: UInt64(max(seconds, 0.1) * 1_000_000_000))
-            throw RideWaitError.timedOut(seconds)
+// A task group waits for uncooperative children when leaving scope. This gate
+// resumes the caller exactly once, cancels the worker, and ignores late callbacks.
+private final class TimeoutGate<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Result<T, Error>?
+    private var continuation: CheckedContinuation<T, Error>?
+    private var tasks: [Task<Void, Never>] = []
+
+    func attach(_ continuation: CheckedContinuation<T, Error>) {
+        lock.lock()
+        if let result {
+            lock.unlock()
+            continuation.resume(with: result)
+        } else {
+            self.continuation = continuation
+            lock.unlock()
         }
-        defer { group.cancelAll() }
-        guard let value = try await group.next() else { throw RideWaitError.timedOut(seconds) }
-        return value
+    }
+
+    func track(_ task: Task<Void, Never>) {
+        lock.lock()
+        if result != nil {
+            lock.unlock()
+            task.cancel()
+        } else {
+            tasks.append(task)
+            lock.unlock()
+        }
+    }
+
+    func finish(_ result: Result<T, Error>) {
+        lock.lock()
+        guard self.result == nil else { lock.unlock(); return }
+        self.result = result
+        let continuation = self.continuation
+        self.continuation = nil
+        let pending = tasks
+        tasks.removeAll()
+        lock.unlock()
+        pending.forEach { $0.cancel() }
+        continuation?.resume(with: result)
+    }
+}
+
+func withTimeout<T: Sendable>(_ seconds: TimeInterval, operation: @escaping @Sendable () async throws -> T) async throws -> T {
+    let gate = TimeoutGate<T>()
+    return try await withTaskCancellationHandler {
+        try Task.checkCancellation()
+        return try await withCheckedThrowingContinuation { continuation in
+            gate.attach(continuation)
+            gate.track(Task.detached(priority: .userInitiated) {
+                do {
+                    try Task.checkCancellation()
+                    let value = try await operation()
+                    gate.finish(.success(value))
+                } catch { gate.finish(.failure(error)) }
+            })
+            gate.track(Task.detached {
+                do {
+                    let delay = seconds.isFinite ? min(max(seconds, 0.001), 86400) : 86400
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    gate.finish(.failure(RideWaitError.timedOut(seconds)))
+                } catch { /* The operation or parent already completed. */ }
+            })
+        }
+    } onCancel: {
+        gate.finish(.failure(CancellationError()))
+    }
+}
+
+enum FITFileReader {
+    static let maximumBytes = 8 * 1024 * 1024
+
+    static func read(_ url: URL) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var data = Data()
+        while true {
+            try Task.checkCancellation()
+            let chunk = try handle.read(upToCount: 64 * 1024) ?? Data()
+            if chunk.isEmpty { return data }
+            guard data.count + chunk.count <= maximumBytes else { throw FITError.resourceLimit }
+            data.append(chunk)
+        }
     }
 }
 
@@ -287,6 +357,8 @@ struct FITParser {
     }
 
     mutating func parse() throws -> FITActivity {
+        try Task.checkCancellation()
+        guard bytes.count <= FITFileReader.maximumBytes else { throw FITError.resourceLimit }
         var clock = RideStageClock()
         RideLog.phase("解析 FIT")
         RideLog.step("FITParser.parse()", "开始拆 Garmin FIT 二进制活动文件", extra: "\(bytes.count) 字节")
@@ -322,6 +394,8 @@ struct FITParser {
         var lapFields = Set<Int>()
         var messageCounts: [Int: Int] = [:]
         while offset < limit {
+            try Task.checkCancellation()
+            guard samples.count <= 100_000, events.count <= 2_000, laps.count <= 2_000 else { throw FITError.resourceLimit }
             let header = try read(1)[0]
             let compressed = header & 0x80 != 0
             let local = Int(compressed ? (header >> 5) & 3 : header & 15)
@@ -360,11 +434,15 @@ struct FITParser {
                 if compressed && field.number == 253 { continue }
                 let data = try read(field.size)
                 if let value = Self.number(data, type: field.type, bigEndian: definition.bigEndian) {
+                    guard abs(value) <= Double(UInt32.max) else { throw FITError.corrupted }
                     values[field.number] = value
                 }
             }
             _ = try read(definition.developerSize)
-            if let full = values[253] { timestamp = UInt64(full.rounded()) }
+            if let full = values[253] {
+                guard full >= 0 else { throw FITError.corrupted }
+                timestamp = UInt64(full.rounded())
+            }
             messageCounts[definition.global, default: 0] += 1
             switch definition.global {
             case 18:
@@ -386,6 +464,7 @@ struct FITParser {
             default: break
             }
         }
+        guard samples.count <= 100_000, events.count <= 2_000, laps.count <= 2_000 else { throw FITError.resourceLimit }
         let counts = messageCounts.keys.sorted().map { global in
             "\(Self.messageName(global)) ×\(messageCounts[global] ?? 0)"
         }.joined(separator: "，")

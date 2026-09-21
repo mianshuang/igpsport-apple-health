@@ -1,6 +1,6 @@
-# iGPSPORT 骑行导入
+# iGPS to Health
 
-把 iGPSPORT 码表的 **户外骑行** `.fit` 写入本机 Apple 健康。数据只在手机上处理，无账号、无服务器。
+把 iGPSPORT 码表的 **户外骑行** `.fit` 写入本机 Apple 健康。FIT 解析和健康写入在手机本地完成；查询天气时仅向 Open-Meteo 发送骑行中点坐标与日期，无需天气账号或 API Key。
 
 当前按开发者自己的环境使用：**iPhone 17 Pro Max / iOS 27**。
 
@@ -15,13 +15,19 @@
 
 ## 运行
 
-用 Xcode 打开 `FITHealth.xcodeproj`，scheme 选 `FITHealth`，目标选已连接的 iPhone，Run。
+用 Xcode 打开 `FITHealth.xcodeproj`，scheme 选 `FITHealth`，目标选已连接的 iPhone，Run。应用名称为 **iGPS to Health**。当前使用已登录的 Personal Team 自动签名，首次运行需开启开发者模式并在「设置 → 通用 → VPN 与设备管理」信任自己的开发者证书。当前描述文件有效期至 2026-09-28 18:00（北京时间），届时重新构建安装。
+
+可在 iGPSPORT 或「文件」App 的系统分享面板选择 **iGPS to Health**，直接预览 `.fit` 文件；若未出现在第一屏，查看「更多」。只接收文件本体，不接收网页链接。健康写入仍需手动确认。
+
+图标 SVG 源文件在 `Design/`，浅色/深色/着色 PNG 在 `FITHealth/Assets.xcassets/AppIcon.appiconset/`。详见 [初版真机验证记录](docs/initial-device-validation.md)。
 
 Cursor 侧已配置官方 Xcode MCP（`xcrun mcpbridge`）。Xcode → Settings → Intelligence 中打开 “Allow external agents to use Xcode tools”。
 
-选择 FIT 文件后点「写入 Apple 健康」，允许本次涉及的写入类型，并允许读取体能消耗（MET）。读取、路线预览和写入都会显示预估耗时；授权约 75 秒、写入按 GPS 点数放宽到最多 90 秒，超时即停止等待。应用的 Documents 会显示在「文件 → 我的 iPhone → FIT 导入」。导入后到健康 App 的这条骑行记录里核对路线、天气和平均强度。请勿重复导入同一文件。
+选择 FIT 文件后点「写入 Apple 健康」，允许本次涉及的写入类型，并允许读取体能消耗（MET）。读取、路线预览和写入都会显示预估耗时；授权约 75 秒、写入按 GPS 点数放宽到最多 90 秒，超时即停止等待。应用的 Documents 会显示在「文件 → 我的 iPhone → iGPS to Health」。写入前会列出天气和平均强度的查询结果，平均强度置顶、温度第二，其余缺失项后排；底部「重试」重新查询天气；写入后清单隐藏。导入后到健康 App 的这条骑行记录里核对路线、天气和平均强度。请勿重复导入同一文件。
 
-Apple Developer 的 App ID `com.mianshuang.FITHealth` 需要打开 **WeatherKit** 和 HealthKit。天气查不到时不影响骑行本身入库。
+天气使用 Open-Meteo 免费非商业 API，无需注册或密钥。近 7 天使用 `https://api.open-meteo.com/v1/forecast`，更早使用 `https://archive-api.open-meteo.com/v1/archive`。仅请求 `temperature_2m,relative_humidity_2m,weather_code,surface_pressure`；选骑行墙钟中点附近的 GPS 点与最近一小时（最多相差 30 分钟），不下载整条天气轨迹。湿度百分数转换为 HealthKit 的 0–1，气压采用地面气压 hPa，WMO 天气码映射到 HealthKit。缺失字段不写入，温度可回退码表。
+
+免费服务限个人非商业使用，少于每天 10,000、每小时 5,000、每分钟 600 次，无可用性保证；商业用途须购买相应许可。界面保留 Open-Meteo/CC BY 4.0 署名。天气为模型估算，不是码表实测。HealthKit 真机签名仍需正常配置，天气查询不再依赖 Apple 天气服务身份。
 
 ## 实测文件
 
@@ -79,15 +85,15 @@ manufacturer `115`，product `301`。数值不对齐 1 号，只用来补传感�
 | record `cadence` | `cyclingCadence` | 有踏频传感器才有 |
 | record `power` | `cyclingPower` | 有功率计才有 |
 | session `total_ascent` / `total_descent` | `HKMetadataKeyElevationAscended` / `ElevationDescended` | 米 |
-| session `avg_temperature` | `HKMetadataKeyWeatherTemperature` | 仅当 WeatherKit 没补到温度时，才用码表环境温度 |
-| 骑行中点时间 + GPS | `HKMetadataKeyWeatherTemperature` / `Humidity` / `Condition` / `BarometricPressure` | WeatherKit 查中点那一小时，作为整场环境。不查天气曲线 |
+| session `avg_temperature` | `HKMetadataKeyWeatherTemperature` | 仅当 Open-Meteo 没补到温度时，才用码表环境温度 |
+| 骑行中点时间 + GPS | `HKMetadataKeyWeatherTemperature` / `Humidity` / `Condition` / `BarometricPressure` | Open-Meteo 查中点那一小时，作为整场环境。不查天气曲线 |
 | FIT 时间范围 + timer-running | `HKMetadataKeyAverageMETs` | 优先时间加权 Apple Watch `physicalEffort`；没有 Watch 样本时用码表速度按 Compendium 回退。暂停不计入 |
 | — | `HKMetadataKeyWorkoutBrandName` = iGPSPORT | 来源标记 |
 
 ### FIT 有、健康没有对应类型（不写）
 
 - 坡度、垂直速度、平均/最低/最高海拔（海拔已随路线点写入）
-- 环境温度曲线（整场天气用骑行中点查 WeatherKit；码表平均温度只在天气查询失败时回退）
+- 环境温度曲线（整场天气用骑行中点查 Open-Meteo；码表平均温度只在天气查询失败时回退）
 - 左右平衡、踏频/功率分区时间、训练效果、NP/IF/TSS
 - 骑行姿势等 event
 - FIT 开发者自定义字段
@@ -98,15 +104,15 @@ manufacturer `115`，product `301`。数值不对齐 1 号，只用来补传感�
 
 健康对骑行展示的是 **速度（km/h）**，没有单独的「配速」类型。时段速度来自整场平均/最大速度 metadata、稀释后的 `cyclingSpeed`，以及圈段 lap 事件。圈均速写在整场 metadata `iGPSPORTLapAvgSpeedsKmh`。本机自动圈是 5 km；没有 lap 时按 1 km 切。
 
-GPS 路线由 `HKWorkoutBuilder.seriesBuilder(for: .workoutRoute())` 收集点，随 `finishWorkout()` 一并保存并关联。不要再对这个 builder 调用 `finishRoute(with:)`，iOS 会抛错。独立 `HKWorkoutRouteBuilder(healthStore:)` 才需要先保存 Workout 再 `finishRoute`。应用内路线预览只描线，没有底图。
+GPS 路线由 `HKWorkoutBuilder.seriesBuilder(for: .workoutRoute())` 收集点，随 `finishWorkout()` 一并保存并关联。不要再对这个 builder 调用 `finishRoute(with:)`，iOS 会抛错。独立 `HKWorkoutRouteBuilder(healthStore:)` 才需要先保存 Workout 再 `finishRoute`。应用内路线预览用 Apple 地图作底图，轨迹叠在上面。
 
 ## 文件
 
 - `.cursor/rules/igpsport-cycling.mdc`：范围紧箍咒
-- `FITHealth/ContentView.swift`：选文件、摘要、无底图路线描线预览、等待/超时、写入
+- `FITHealth/ContentView.swift`：选文件、摘要、Apple 地图路线、查询补全清单、等待/超时、写入
 - `FITHealth/Core/FITParser.swift`：FIT 二进制解析，以及天气中点 / 时间加权 MET 计算
 - `FITHealth/HealthImporter.swift`：HealthKit 授权及保存
-- `FITHealth/WorkoutEnrichment.swift`：WeatherKit 中点天气、读取 Watch MET
+- `FITHealth/WorkoutEnrichment.swift`：Open-Meteo 中点天气、读取 Watch MET
 - `FITHealthTests/FITParserTests.swift`：解析测试，可在 Mac 上跑
 
 ## 验证
@@ -123,6 +129,8 @@ swift test
 - [HKWorkoutBuilder](https://developer.apple.com/documentation/healthkit/hkworkoutbuilder)
 - [HKMetadataKeyWeatherTemperature](https://developer.apple.com/documentation/healthkit/hkmetadatakeyweathertemperature)
 - [HKMetadataKeyAverageMETs](https://developer.apple.com/documentation/healthkit/hkmetadatakeyaverageMets)
-- [WeatherQuery.hourly(startDate:endDate:)](https://developer.apple.com/documentation/weatherkit/weatherquery/hourly(startdate:enddate:))
+- [Open-Meteo API](https://open-meteo.com/en/docs)
+- [Open-Meteo 历史天气](https://open-meteo.com/en/docs/historical-weather-api)
+- [Open-Meteo 使用条款](https://open-meteo.com/en/terms)
 - [HKWorkoutRouteBuilder](https://developer.apple.com/documentation/healthkit/hkworkoutroutebuilder)
 - [Giving external agents access to Xcode](https://developer.apple.com/documentation/xcode/giving-external-agents-access-to-xcode)

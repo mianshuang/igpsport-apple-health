@@ -1,82 +1,62 @@
-import CoreLocation
+import Foundation
 import HealthKit
-import WeatherKit
+
+struct EnrichmentSnapshot: Sendable {
+    struct Weather: Sendable {
+        var temperatureCelsius: Double?
+        var humidity: Double?
+        var condition: HKWeatherCondition?
+        var conditionName: String?
+        var pressureHPa: Double?
+        var error: String?
+    }
+
+    struct METs: Sendable {
+        var value: Double?
+        var fromWatch: Bool
+        var error: String?
+    }
+
+    var weather = Weather()
+    var mets = METs(value: nil, fromWatch: false, error: nil)
+}
 
 enum WorkoutEnrichment {
     private static let weatherTimeout: TimeInterval = 12
     private static let metsTimeout: TimeInterval = 8
     private static let metsUnit = HKUnit.kilocalorie()
         .unitDivided(by: HKUnit.gramUnit(with: .kilo).unitMultiplied(by: .hour()))
+    private static let hectopascal = HKUnit.pascalUnit(with: .hecto)
 
-    static func metadata(for activity: FITActivity, store: HKHealthStore) async -> [String: Any] {
-        RideLog.step("WorkoutEnrichment", "用骑行中点查天气，并用 Watch MET 或速度回退计算平均强度")
-        async let weather = weatherMetadata(activity)
-        async let mets = metsMetadata(activity, store: store)
-        var info: [String: Any] = [:]
-        info.merge(await weather, uniquingKeysWith: { _, new in new })
-        info.merge(await mets, uniquingKeysWith: { _, new in new })
-        if info.isEmpty {
-            RideLog.skip("WorkoutEnrichment", "天气和平均强度都没有补上，继续写入骑行本身")
-        }
-        return info
-    }
-
-    private static func weatherMetadata(_ activity: FITActivity) async -> [String: Any] {
+    static func weather(for activity: FITActivity) async -> EnrichmentSnapshot.Weather {
         guard let point = RideSampling.weatherQueryPoint(start: activity.start, end: activity.end,
                                                          locations: activity.locations) else {
-            RideLog.skip("WeatherKit", "没有 GPS，无法按骑行中点查天气")
-            return [:]
+            RideLog.skip("Open-Meteo", "没有 GPS，无法按骑行中点查天气")
+            return EnrichmentSnapshot.Weather(error: "没有 GPS，无法查询天气")
         }
-        RideLog.step("WeatherKit.hourly", "查中点这一小时的温度、湿度、天气状况、气压",
-                     extra: "\(RideLog.date(point.date))，\(String(format: "%.4f, %.4f", point.latitude, point.longitude))")
         do {
-            let hour = try await withTimeout(weatherTimeout) {
-                try await fetchHour(at: point)
+            let sample = try await withTimeout(weatherTimeout) {
+                var request = URLRequest(url: OpenMeteo.url(date: point.date, latitude: point.latitude,
+                                                          longitude: point.longitude))
+                request.timeoutInterval = weatherTimeout
+                request.cachePolicy = .reloadIgnoringLocalCacheData
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse else { throw OpenMeteo.Failure.unavailable }
+                guard (200..<300).contains(http.statusCode) else { throw OpenMeteo.Failure.http(http.statusCode) }
+                return try OpenMeteo.sample(data: data, at: point.date)
             }
-            var info: [String: Any] = [:]
-            let celsius = hour.temperature.converted(to: .celsius).value
-            if celsius.isFinite {
-                info[HKMetadataKeyWeatherTemperature] = HKQuantity(unit: .degreeCelsius(), doubleValue: celsius)
-            }
-            if hour.humidity.isFinite, (0...1).contains(hour.humidity) {
-                info[HKMetadataKeyWeatherHumidity] = HKQuantity(unit: .percent(), doubleValue: hour.humidity)
-            }
-            let condition = healthCondition(hour.condition)
-            if condition != .none {
-                info[HKMetadataKeyWeatherCondition] = condition.rawValue
-            }
-            let hectopascals = hour.pressure.converted(to: .hectopascals).value
-            if hectopascals.isFinite, hectopascals > 0 {
-                info[HKMetadataKeyBarometricPressure] = HKQuantity(unit: .pascalUnit(with: .hecto),
-                                                                   doubleValue: hectopascals)
-            }
-            RideLog.ok("WeatherKit.hourly", "已得到骑行中点的代表天气",
-                       extra: String(format: "%.1f°C，湿度 %.0f%%，%@，%.0f hPa",
-                                     celsius, hour.humidity * 100, hour.condition.description, hectopascals))
-            return info
+            RideLog.ok("Open-Meteo", "已获取骑行中点的代表小时天气")
+            return EnrichmentSnapshot.Weather(
+                temperatureCelsius: sample.temperature, humidity: sample.humidity,
+                condition: sample.code.flatMap(healthCondition),
+                conditionName: sample.code.flatMap(OpenMeteo.conditionName), pressureHPa: sample.pressure)
         } catch {
-            RideLog.skip("WeatherKit.hourly", "天气查询失败或超时，不阻断写入",
-                         extra: error.localizedDescription)
-            return [:]
+            RideLog.skip("Open-Meteo", "天气查询失败", extra: error.localizedDescription)
+            return EnrichmentSnapshot.Weather(error: error.localizedDescription)
         }
     }
 
-    private static func fetchHour(at point: (date: Date, latitude: Double, longitude: Double)) async throws -> HourWeather {
-        let location = CLLocation(latitude: point.latitude, longitude: point.longitude)
-        let forecast = try await WeatherService.shared.weather(
-            for: location,
-            including: .hourly(startDate: point.date.addingTimeInterval(-3600),
-                               endDate: point.date.addingTimeInterval(1))
-        )
-        guard let hour = forecast.min(by: {
-            abs($0.date.timeIntervalSince(point.date)) < abs($1.date.timeIntervalSince(point.date))
-        }) else {
-            throw WeatherUnavailable()
-        }
-        return hour
-    }
-
-    private static func metsMetadata(_ activity: FITActivity, store: HKHealthStore) async -> [String: Any] {
+    static func mets(for activity: FITActivity, store: HKHealthStore) async -> EnrichmentSnapshot.METs {
         RideLog.step("physicalEffort", "读取本次 FIT 时间范围内的 Apple Watch MET 样本")
         let watch: [(start: Date, end: Date, mets: Double)]
         do {
@@ -99,14 +79,32 @@ enum WorkoutEnrichment {
         )
         guard let result, result.value.isFinite, result.value > 0 else {
             RideLog.skip("HKMetadataKeyAverageMETs", "没有 Watch MET，速度回退也算不出平均强度")
-            return [:]
+            return EnrichmentSnapshot.METs(value: nil, fromWatch: false, error: "无法计算平均强度")
         }
         RideLog.ok("HKMetadataKeyAverageMETs",
                    result.fromWatch ? "按 timer-running 对 Watch MET 做时间加权" : "没有 Watch MET，用码表速度按 Compendium 回退",
                    extra: String(format: "%.2f METs，%d 个 Watch 样本", result.value, watch.count))
-        return [
-            HKMetadataKeyAverageMETs: HKQuantity(unit: metsUnit, doubleValue: result.value)
-        ]
+        return EnrichmentSnapshot.METs(value: result.value, fromWatch: result.fromWatch, error: nil)
+    }
+
+    static func healthMetadata(_ snapshot: EnrichmentSnapshot) -> [String: Any] {
+        var info: [String: Any] = [:]
+        if let celsius = snapshot.weather.temperatureCelsius {
+            info[HKMetadataKeyWeatherTemperature] = HKQuantity(unit: .degreeCelsius(), doubleValue: celsius)
+        }
+        if let humidity = snapshot.weather.humidity {
+            info[HKMetadataKeyWeatherHumidity] = HKQuantity(unit: .percent(), doubleValue: humidity)
+        }
+        if let condition = snapshot.weather.condition, condition != .none {
+            info[HKMetadataKeyWeatherCondition] = NSNumber(value: condition.rawValue)
+        }
+        if let hPa = snapshot.weather.pressureHPa, hPa > 0 {
+            info[HKMetadataKeyBarometricPressure] = HKQuantity(unit: hectopascal, doubleValue: hPa)
+        }
+        if let mets = snapshot.mets.value, mets > 0 {
+            info[HKMetadataKeyAverageMETs] = HKQuantity(unit: metsUnit, doubleValue: mets)
+        }
+        return info
     }
 
     private static func physicalEffortSamples(for activity: FITActivity,
@@ -128,36 +126,20 @@ enum WorkoutEnrichment {
         }
     }
 
-    private static func healthCondition(_ condition: WeatherCondition) -> HKWeatherCondition {
-        switch condition {
-        case .clear: return .clear
-        case .mostlyClear: return .fair
-        case .partlyCloudy: return .partlyCloudy
-        case .mostlyCloudy: return .mostlyCloudy
-        case .cloudy: return .cloudy
-        case .foggy: return .foggy
-        case .haze: return .haze
-        case .smoky: return .smoky
-        case .blowingDust: return .dust
-        case .breezy, .windy: return .windy
-        case .drizzle: return .drizzle
-        case .rain: return .showers
-        case .heavyRain: return .showers
-        case .sunShowers: return .scatteredShowers
-        case .isolatedThunderstorms, .scatteredThunderstorms, .strongStorms, .thunderstorms:
-            return .thunderstorms
-        case .tropicalStorm: return .tropicalStorm
-        case .hurricane: return .hurricane
-        case .snow, .flurries, .sunFlurries, .heavySnow, .blowingSnow, .blizzard: return .snow
-        case .sleet: return .sleet
-        case .wintryMix: return .mixedSnowAndSleet
-        case .freezingDrizzle: return .freezingDrizzle
-        case .freezingRain: return .freezingRain
-        case .hail: return .hail
-        case .hot, .frigid: return .fair
-        @unknown default: return .none
+    private static func healthCondition(_ code: Int) -> HKWeatherCondition? {
+        switch code {
+        case 0: .clear
+        case 1: .fair
+        case 2: .partlyCloudy
+        case 3: .cloudy
+        case 45, 48: .foggy
+        case 51, 53, 55: .drizzle
+        case 56, 57: .freezingDrizzle
+        case 61, 63, 65, 80, 81, 82: .showers
+        case 66, 67: .freezingRain
+        case 71, 73, 75, 77, 85, 86: .snow
+        case 95, 96, 99: .thunderstorms
+        default: nil
         }
     }
 }
-
-private struct WeatherUnavailable: Error {}

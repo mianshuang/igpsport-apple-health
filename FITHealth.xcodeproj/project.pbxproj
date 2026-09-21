@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BC1122334455667788990011 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BC1122334455667788990012; };
+		AF0011223344556677889900 /* OpenMeteo.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF0011223344556677889901; };
 		1EBFAD85196D945BAE6C7771 /* Core/FITParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A0B6E54C14D19BDDC4B270 /* Core/FITParser.swift */; };
 		30253ADCC509E2AC319B2F00 /* FITHealthApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73C1CD0AA67DD9C1A7C2025 /* FITHealthApp.swift */; };
 		7DBA4989A7939FB5AAADAF51 /* HealthImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21B39791AD98166BCF006EC5 /* HealthImporter.swift */; };
@@ -15,8 +17,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		BC1122334455667788990012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AF0011223344556677889901 /* OpenMeteo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/OpenMeteo.swift; sourceTree = "<group>"; };
 		21B39791AD98166BCF006EC5 /* HealthImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthImporter.swift; sourceTree = "<group>"; };
-		38A007151ABE87CC01A5B6E9 /* FITHealth.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = FITHealth.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		38A007151ABE87CC01A5B6E9 /* FITHealth.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = "iGPS to Health.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7B594B6DB375E1BF3F23CDD6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9727B9EED8ACD2EE46E136A0 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		9E4C71A08B2D4F6E91C3A055 /* WorkoutEnrichment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutEnrichment.swift; sourceTree = "<group>"; };
@@ -39,11 +43,13 @@
 		69F8D45498D7E20DA99BB780 /* FITHealth */ = {
 			isa = PBXGroup;
 			children = (
+				BC1122334455667788990012 /* Assets.xcassets */,
 				E73C1CD0AA67DD9C1A7C2025 /* FITHealthApp.swift */,
 				9727B9EED8ACD2EE46E136A0 /* ContentView.swift */,
 				21B39791AD98166BCF006EC5 /* HealthImporter.swift */,
 				9E4C71A08B2D4F6E91C3A055 /* WorkoutEnrichment.swift */,
 				C2A0B6E54C14D19BDDC4B270 /* Core/FITParser.swift */,
+				AF0011223344556677889901 /* OpenMeteo.swift */,
 				7B594B6DB375E1BF3F23CDD6 /* Info.plist */,
 				B9BE1742B84A7B32A83489EC /* FITHealth.entitlements */,
 			);
@@ -100,9 +106,6 @@
 							com.apple.HealthKit = {
 								enabled = 1;
 							};
-							com.apple.WeatherKit = {
-								enabled = 1;
-							};
 						};
 					};
 				};
@@ -131,6 +134,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BC1122334455667788990011 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -146,6 +150,7 @@
 				7DBA4989A7939FB5AAADAF51 /* HealthImporter.swift in Sources */,
 				D8A12B90C4E75F31A06D7B22 /* WorkoutEnrichment.swift in Sources */,
 				1EBFAD85196D945BAE6C7771 /* Core/FITParser.swift in Sources */,
+				AF0011223344556677889900 /* OpenMeteo.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -157,19 +162,22 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = FITHealth/FITHealth.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FB7YUJA97R;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FITHealth/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "骑行导入";
+				INFOPLIST_KEY_CFBundleDisplayName = "iGPS to Health";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "读取 Apple Watch 在本次骑行时段记录的体能消耗（MET），用来写入平均强度。不读取其它健康数据。";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "将 iGPSPORT 户外骑行的路线、距离、速度、圈段、热量和心率写入 Apple 健康。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "按骑行 GPS 中点查询当时天气，写入健康运动记录。不使用持续定位。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mianshuang.FITHealth;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "iGPS to Health";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -182,19 +190,22 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = FITHealth/FITHealth.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FB7YUJA97R;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FITHealth/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "骑行导入";
+				INFOPLIST_KEY_CFBundleDisplayName = "iGPS to Health";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "读取 Apple Watch 在本次骑行时段记录的体能消耗（MET），用来写入平均强度。不读取其它健康数据。";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "将 iGPSPORT 户外骑行的路线、距离、速度、圈段、热量和心率写入 Apple 健康。";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "按骑行 GPS 中点查询当时天气，写入健康运动记录。不使用持续定位。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.mianshuang.FITHealth;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "iGPS to Health";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -223,6 +234,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;

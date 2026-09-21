@@ -239,12 +239,11 @@ final class FITParserTests: XCTestCase {
         let small = RideTiming.persistEstimate(gps: 100, speedSamples: 80, events: 2)
         let large = RideTiming.persistEstimate(gps: 6_299, speedSamples: 6_299, events: 81)
         XCTAssertLessThan(small, large)
-        XCTAssertGreaterThanOrEqual(large, 6)
+        XCTAssertGreaterThanOrEqual(large, 2)
         XCTAssertLessThanOrEqual(RideTiming.persistTimeout(estimate: large), 90)
         XCTAssertGreaterThanOrEqual(RideTiming.persistTimeout(estimate: large), 25)
         XCTAssertEqual(RideTiming.parseTimeout(estimate: 2), 16)
         XCTAssertEqual(RideTiming.authorizeTimeout, 75)
-        XCTAssertEqual(RideTiming.enrichmentEstimate, 8)
     }
 
     func testTimeoutCancelsSlowWork() async {
@@ -354,6 +353,94 @@ final class FITParserTests: XCTestCase {
     private func sample(at date: Date, speed: Double? = nil) -> FITActivity.Sample {
         FITActivity.Sample(date: date, latitude: nil, longitude: nil, altitude: nil, speed: speed,
                            cadence: nil, power: nil, distance: nil, heartRate: nil, temperature: nil, accuracy: nil)
+    }
+
+    func testTimeoutReturnsBeforeUncooperativeCallback() async throws {
+        let start = Date()
+        do {
+            let _: Int = try await withTimeout(0.02) {
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.6) {
+                        continuation.resume(returning: 42)
+                    }
+                }
+            }
+            XCTFail("Expected timeout")
+        } catch {
+            XCTAssertEqual(error as? RideWaitError, .timedOut(0.02))
+            XCTAssertLessThan(Date().timeIntervalSince(start), 0.4)
+        }
+        // Let the late callback fire: it must not double-resume the caller.
+        try await Task.sleep(nanoseconds: 700_000_000)
+    }
+
+    func testParentCancellationAndFastCompletionRace() async throws {
+        for _ in 0..<100 {
+            let task = Task {
+                try await withTimeout(1) {
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                    return 1
+                }
+            }
+            task.cancel()
+            do { _ = try await task.value; XCTFail("Expected cancellation") }
+            catch { XCTAssertTrue(error is CancellationError) }
+            let value = try await withTimeout(1) { 42 }
+            XCTAssertEqual(value, 42)
+        }
+    }
+
+    func testOversizedFileIsRejectedByBoundedReader() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data(repeating: 0, count: FITFileReader.maximumBytes + 1).write(to: url)
+        XCTAssertThrowsError(try FITFileReader.read(url)) {
+            XCTAssertEqual($0 as? FITError, .resourceLimit)
+        }
+    }
+
+    func testCancelledParserStopsBeforeProcessing() async {
+        let data = fixture()
+        let task = Task {
+            while !Task.isCancelled { await Task.yield() }
+            var parser = FITParser(data: data)
+            return try parser.parse()
+        }
+        task.cancel()
+        do { _ = try await task.value; XCTFail("Expected cancellation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+    }
+
+    func testDeterministicMalformedPayloadsDoNotCrash() {
+        let original = fixture()
+        var seed: UInt64 = 1234567
+        for _ in 0..<1000 {
+            var bytes = Array(original.dropLast(2))
+            seed = seed &* 6364136223846793005 &+ 1
+            let index = 14 + Int(seed % UInt64(bytes.count - 14))
+            bytes[index] = UInt8(truncatingIfNeeded: seed >> 32)
+            let crc = FITParser.crc(bytes[...])
+            bytes.append(UInt8(truncatingIfNeeded: crc))
+            bytes.append(UInt8(truncatingIfNeeded: crc >> 8))
+            var parser = FITParser(data: Data(bytes))
+            _ = try? parser.parse()
+        }
+    }
+
+    func testRealRideParsingPerformanceBaseline() throws {
+        let url = URL(fileURLWithPath: "/Users/mianshuang/Downloads/ride-0-2026-09-20-20-19-33.fit")
+        guard FileManager.default.fileExists(atPath: url.path) else { throw XCTSkip("Local ride fixture unavailable") }
+        let data = try FITFileReader.read(url)
+        let start = Date()
+        for _ in 0..<10 {
+            var parser = FITParser(data: data)
+            let activity = try parser.parse()
+            XCTAssertEqual(activity.locations.count, 6299)
+            XCTAssertLessThanOrEqual(RideSampling.previewPoints(activity.locations).count, 720)
+        }
+        let average = Date().timeIntervalSince(start) / 10
+        print("PERFORMANCE: 223709-byte / 6299-GPS ride average parse: \(average) seconds")
+        XCTAssertLessThan(average, 2, "Mac baseline only; device performance must be measured separately")
     }
 
     private func fixture(bigEndian: Bool = false) -> Data {

@@ -15,7 +15,26 @@ final class HealthImporter {
     private let heartType = HKQuantityType(.heartRate)
     private let effortType = HKQuantityType(.physicalEffort)
 
-    func save(_ activity: FITActivity, onPhase: @escaping @Sendable (ImportPhase) -> Void = { _ in }) async throws {
+    func fetchWeather(for activity: FITActivity) async -> EnrichmentSnapshot.Weather {
+        await WorkoutEnrichment.weather(for: activity)
+    }
+
+    func fetchMETs(for activity: FITActivity) async -> EnrichmentSnapshot.METs {
+        if HKHealthStore.isHealthDataAvailable() {
+            do {
+                try await withTimeout(RideTiming.authorizeTimeout) {
+                    try await self.store.requestAuthorization(toShare: [], read: [self.effortType])
+                }
+            } catch {
+                RideLog.skip("requestAuthorization(read: physicalEffort)", "读取 Watch MET 授权未完成，改用速度回退",
+                             extra: error.localizedDescription)
+            }
+        }
+        return await WorkoutEnrichment.mets(for: activity, store: store)
+    }
+
+    func save(_ activity: FITActivity, enrichment: EnrichmentSnapshot,
+              onPhase: @escaping @Sendable (ImportPhase) -> Void = { _ in }) async throws {
         RideLog.phase("写入 Apple 健康")
         RideLog.step("HKHealthStore.isHealthDataAvailable()", "确认本机能否使用健康")
         guard HKHealthStore.isHealthDataAvailable() else {
@@ -63,16 +82,14 @@ final class HealthImporter {
         let store = self.store
         do {
             try await withTimeout(timeout) {
-                try await Task.detached(priority: .userInitiated) {
-                    try await persist(activity, store: store)
-                }.value
+                try await persist(activity, store: store, enrichment: enrichment)
             }
         } catch RideWaitError.timedOut(let seconds) {
             RideLog.fail("persist", "写入超时", extra: RideTiming.secondsLabel(seconds))
-            throw ImportError.timedOut(seconds)
+            throw ImportError.writeOutcomeUnknown
         } catch is CancellationError {
             RideLog.fail("persist", "写入任务已取消")
-            throw ImportError.timedOut(timeout)
+            throw ImportError.writeOutcomeUnknown
         }
     }
 
@@ -89,7 +106,8 @@ final class HealthImporter {
     }
 }
 
-private func persist(_ activity: FITActivity, store: HKHealthStore) async throws {
+private func persist(_ activity: FITActivity, store: HKHealthStore, enrichment: EnrichmentSnapshot) async throws {
+    try Task.checkCancellation()
     var clock = RideStageClock()
     let meterPerSecond = HKUnit.meter().unitDivided(by: .second())
     let rpm = HKUnit.count().unitDivided(by: .minute())
@@ -97,8 +115,7 @@ private func persist(_ activity: FITActivity, store: HKHealthStore) async throws
     configuration.activityType = .cycling
     configuration.locationType = .outdoor
     RideLog.step("HKWorkoutConfiguration", "固定为室外骑行，不会写成室内或其它运动")
-    let extraMetadata = await WorkoutEnrichment.metadata(for: activity, store: store)
-    try Task.checkCancellation()
+    let extraMetadata = WorkoutEnrichment.healthMetadata(enrichment)
     let device = HKDevice(name: "iGPSPORT", manufacturer: "iGPSPORT", model: "FIT",
                           hardwareVersion: nil, firmwareVersion: nil, softwareVersion: "1.0",
                           localIdentifier: nil, udiDeviceIdentifier: nil)
@@ -107,6 +124,7 @@ private func persist(_ activity: FITActivity, store: HKHealthStore) async throws
     var routeBuilder: HKWorkoutRouteBuilder?
     do {
         RideLog.step("beginCollection(at:)", "打开收集窗口，起点是 FIT start_time")
+        try Task.checkCancellation()
         try await builder.beginCollection(at: activity.start)
         RideLog.ok("beginCollection(at:)", "已开始收集", extra: clock.extra(RideLog.date(activity.start)))
         try Task.checkCancellation()
@@ -149,10 +167,12 @@ private func persist(_ activity: FITActivity, store: HKHealthStore) async throws
         var info = metadata(activity, meterPerSecond: meterPerSecond)
         info.merge(extraMetadata, uniquingKeysWith: { _, new in new })
         RideLog.step("addMetadata", "写入均速/极速、爬升、天气、平均强度和品牌等整场元数据", extra: metadataSummary(info))
+        try Task.checkCancellation()
         try await builder.addMetadata(info)
         RideLog.ok("addMetadata", "元数据已挂到本次运动", extra: clock.extra())
 
         RideLog.step("endCollection(at:)", "关闭收集窗口，终点是 FIT 墙钟结束时间")
+        try Task.checkCancellation()
         try await builder.endCollection(at: activity.end)
         RideLog.ok("endCollection(at:)", "收集结束", extra: clock.extra(RideLog.date(activity.end)))
         try Task.checkCancellation()
@@ -246,6 +266,7 @@ private func addDistance(_ activity: FITActivity, store: HKHealthStore, device: 
                          start: interval.start, end: interval.end)
     }
     RideLog.step("distanceCycling", "没有逐点里程，按未暂停时段拆分 session 总距离", extra: RideLog.km(distance))
+    try Task.checkCancellation()
     try await builder.addSamples(samples)
     RideLog.ok("distanceCycling", "已按骑行时段写入距离", extra: clock.extra("\(samples.count) 条"))
 }
@@ -263,6 +284,7 @@ private func addTotals(_ activity: FITActivity, to builder: HKWorkoutBuilder, cl
                          start: interval.start, end: interval.end)
     }
     RideLog.step("activeEnergyBurned", "按未暂停时段拆分活动能量，避免被休息比例切掉", extra: "\(Int(calories)) kcal，\(samples.count) 段")
+    try Task.checkCancellation()
     try await builder.addSamples(samples)
     RideLog.ok("addSamples(totals)", "热量已加入本次运动", extra: clock.extra("\(samples.count) 条"))
 }
@@ -300,6 +322,7 @@ private func addSeries(store: HKHealthStore, device: HKDevice, type: HKQuantityT
         throw error
     }
     RideLog.step("\(call).finishSeries", "先完成数量序列，再把得到的 sample 加进 Workout")
+    try Task.checkCancellation()
     let samples: [HKQuantitySample] = try await withCheckedThrowingContinuation { continuation in
         series.finishSeries(metadata: nil) { samples, error in
             if let error { continuation.resume(throwing: error) }
@@ -310,6 +333,7 @@ private func addSeries(store: HKHealthStore, device: HKDevice, type: HKQuantityT
         RideLog.skip("\(call).addSamples", "finishSeries 没有返回 sample")
         return
     }
+    try Task.checkCancellation()
     try await builder.addSamples(samples)
     RideLog.ok("\(call).addSamples", "该序列已挂到本次运动", extra: clock.extra("\(samples.count) 条 sample"))
 }
@@ -343,6 +367,7 @@ private func addCumulative(store: HKHealthStore, device: HKDevice, type: HKQuant
         throw error
     }
     RideLog.step("\(call).finishSeries", "先完成数量序列，再把得到的 sample 加进 Workout")
+    try Task.checkCancellation()
     let samples: [HKQuantitySample] = try await withCheckedThrowingContinuation { continuation in
         series.finishSeries(metadata: nil) { samples, error in
             if let error { continuation.resume(throwing: error) }
@@ -353,6 +378,7 @@ private func addCumulative(store: HKHealthStore, device: HKDevice, type: HKQuant
         RideLog.skip("\(call).addSamples", "finishSeries 没有返回 sample")
         return
     }
+    try Task.checkCancellation()
     try await builder.addSamples(samples)
     RideLog.ok("\(call).addSamples", "该序列已挂到本次运动", extra: clock.extra("\(samples.count) 条 sample"))
 }
@@ -405,6 +431,7 @@ private func addEvents(_ activity: FITActivity, to builder: HKWorkoutBuilder,
     }
     events.sort { $0.dateInterval.start < $1.dateInterval.start }
     guard !events.isEmpty else { return }
+    try Task.checkCancellation()
     try await builder.addWorkoutEvents(events)
     RideLog.ok("addWorkoutEvents", "暂停/恢复/圈段已加入本次运动", extra: clock.extra("\(events.count) 个事件"))
 }
@@ -490,10 +517,11 @@ private func typeName(_ type: HKSampleType) -> String {
     }
 }
 
-private enum ImportError: LocalizedError {
-    case unavailable, permission, saveFailed, timedOut(TimeInterval)
+enum ImportError: LocalizedError {
+    case unavailable, permission, saveFailed, timedOut(TimeInterval), writeOutcomeUnknown
     var errorDescription: String? {
         switch self {
+        case .writeOutcomeUnknown: "等待健康写入超时，已请求取消。系统可能已保存部分数据或运动记录，请先到健康 App 核对；本次启动期间已暂停继续写入，避免重复导入。"
         case .unavailable: "当前设备无法使用 Apple 健康。"
         case .permission: "请允许写入本次骑行所需的健康数据，然后重新导入。可在系统设置的健康权限中修改。"
         case .saveFailed: "骑行未能保存，请重试。"
