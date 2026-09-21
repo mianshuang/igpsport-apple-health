@@ -19,7 +19,9 @@
 
 Cursor 侧已配置官方 Xcode MCP（`xcrun mcpbridge`）。Xcode → Settings → Intelligence 中打开 “Allow external agents to use Xcode tools”。
 
-选择 FIT 文件后点「写入 Apple 健康」，允许本次涉及的写入类型。读取、路线预览和写入都会显示预估耗时；授权约 75 秒、写入按 GPS 点数放宽到最多 90 秒，超时即停止等待。应用的 Documents 会显示在「文件 → 我的 iPhone → FIT 导入」。导入后到健康 App 的这条骑行记录里核对路线。请勿重复导入同一文件。
+选择 FIT 文件后点「写入 Apple 健康」，允许本次涉及的写入类型，并允许读取体能消耗（MET）。读取、路线预览和写入都会显示预估耗时；授权约 75 秒、写入按 GPS 点数放宽到最多 90 秒，超时即停止等待。应用的 Documents 会显示在「文件 → 我的 iPhone → FIT 导入」。导入后到健康 App 的这条骑行记录里核对路线、天气和平均强度。请勿重复导入同一文件。
+
+Apple Developer 的 App ID `com.mianshuang.FITHealth` 需要打开 **WeatherKit** 和 HealthKit。天气查不到时不影响骑行本身入库。
 
 ## 实测文件
 
@@ -77,13 +79,15 @@ manufacturer `115`，product `301`。数值不对齐 1 号，只用来补传感�
 | record `cadence` | `cyclingCadence` | 有踏频传感器才有 |
 | record `power` | `cyclingPower` | 有功率计才有 |
 | session `total_ascent` / `total_descent` | `HKMetadataKeyElevationAscended` / `ElevationDescended` | 米 |
-| session `avg_temperature` | `HKMetadataKeyWeatherTemperature` | 码表环境温度，不是体温 |
+| session `avg_temperature` | `HKMetadataKeyWeatherTemperature` | 仅当 WeatherKit 没补到温度时，才用码表环境温度 |
+| 骑行中点时间 + GPS | `HKMetadataKeyWeatherTemperature` / `Humidity` / `Condition` / `BarometricPressure` | WeatherKit 查中点那一小时，作为整场环境。不查天气曲线 |
+| FIT 时间范围 + timer-running | `HKMetadataKeyAverageMETs` | 优先时间加权 Apple Watch `physicalEffort`；没有 Watch 样本时用码表速度按 Compendium 回退。暂停不计入 |
 | — | `HKMetadataKeyWorkoutBrandName` = iGPSPORT | 来源标记 |
 
 ### FIT 有、健康没有对应类型（不写）
 
 - 坡度、垂直速度、平均/最低/最高海拔（海拔已随路线点写入）
-- 环境温度曲线（只有整场平均温度能进天气 metadata）
+- 环境温度曲线（整场天气用骑行中点查 WeatherKit；码表平均温度只在天气查询失败时回退）
 - 左右平衡、踏频/功率分区时间、训练效果、NP/IF/TSS
 - 骑行姿势等 event
 - FIT 开发者自定义字段
@@ -100,8 +104,9 @@ GPS 路线由 `HKWorkoutBuilder.seriesBuilder(for: .workoutRoute())` 收集点�
 
 - `.cursor/rules/igpsport-cycling.mdc`：范围紧箍咒
 - `FITHealth/ContentView.swift`：选文件、摘要、无底图路线描线预览、等待/超时、写入
-- `FITHealth/Core/FITParser.swift`：FIT 二进制解析
+- `FITHealth/Core/FITParser.swift`：FIT 二进制解析，以及天气中点 / 时间加权 MET 计算
 - `FITHealth/HealthImporter.swift`：HealthKit 授权及保存
+- `FITHealth/WorkoutEnrichment.swift`：WeatherKit 中点天气、读取 Watch MET
 - `FITHealthTests/FITParserTests.swift`：解析测试，可在 Mac 上跑
 
 ## 验证
@@ -116,5 +121,8 @@ swift test
 
 - [Garmin FIT Protocol](https://developer.garmin.com/fit/articles/fit-protocol/fit_protocol.html)
 - [HKWorkoutBuilder](https://developer.apple.com/documentation/healthkit/hkworkoutbuilder)
+- [HKMetadataKeyWeatherTemperature](https://developer.apple.com/documentation/healthkit/hkmetadatakeyweathertemperature)
+- [HKMetadataKeyAverageMETs](https://developer.apple.com/documentation/healthkit/hkmetadatakeyaverageMets)
+- [WeatherQuery.hourly(startDate:endDate:)](https://developer.apple.com/documentation/weatherkit/weatherquery/hourly(startdate:enddate:))
 - [HKWorkoutRouteBuilder](https://developer.apple.com/documentation/healthkit/hkworkoutroutebuilder)
 - [Giving external agents access to Xcode](https://developer.apple.com/documentation/xcode/giving-external-agents-access-to-xcode)

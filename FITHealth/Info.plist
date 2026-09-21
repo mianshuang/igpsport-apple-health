@@ -1,14 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>UIFileSharingEnabled</key><true/>
-<key>LSSupportsOpeningDocumentsInPlace</key><true/>
-<key>NSHealthUpdateUsageDescription</key><string>将 iGPSPORT 户外骑行的路线、距离、速度、圈段、热量和心率写入 Apple 健康。</string>
-<key>NSHealthShareUsageDescription</key><string>用于 Apple 健康的运动数据授权。本应用不读取已有的健康记录。</string>
-<key>UTImportedTypeDeclarations</key><array><dict>
-<key>UTTypeIdentifier</key><string>com.garmin.fit</string>
-<key>UTTypeDescription</key><string>FIT Activity</string>
-<key>UTTypeConformsTo</key><array><string>public.data</string></array>
-<key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>fit</string></array></dict>
-</dict></array>
-</dict></plist>
+<plist version="1.0">
+<dict>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>FIT Activity</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.garmin.fit</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>fit</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

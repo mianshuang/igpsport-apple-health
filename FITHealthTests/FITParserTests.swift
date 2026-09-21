@@ -164,6 +164,14 @@ final class FITParserTests: XCTestCase {
         )
         XCTAssertEqual((activity.avgSpeed ?? 0) * 3.6, 20.2608, accuracy: 0.01)
         XCTAssertEqual((activity.maxSpeed ?? 0) * 3.6, 36.7092, accuracy: 0.05)
+        XCTAssertNotNil(RideSampling.weatherQueryPoint(start: activity.start, end: activity.end, locations: activity.locations))
+        let mets = RideSampling.averageMETs(
+            watch: [], samples: activity.samples, avgSpeed: activity.avgSpeed,
+            start: activity.start, end: activity.end, duration: activity.duration, events: activity.timerEvents
+        )
+        XCTAssertEqual(mets?.fromWatch, false)
+        XCTAssertGreaterThan(mets?.value ?? 0, 4)
+        XCTAssertLessThan(mets?.value ?? 0, 16)
     }
 
     func testIgpsportRideFile2HasSensorsAndIgnoresZeroEnhancedSpeed() throws {
@@ -231,11 +239,12 @@ final class FITParserTests: XCTestCase {
         let small = RideTiming.persistEstimate(gps: 100, speedSamples: 80, events: 2)
         let large = RideTiming.persistEstimate(gps: 6_299, speedSamples: 6_299, events: 81)
         XCTAssertLessThan(small, large)
-        XCTAssertGreaterThanOrEqual(large, 2)
+        XCTAssertGreaterThanOrEqual(large, 6)
         XCTAssertLessThanOrEqual(RideTiming.persistTimeout(estimate: large), 90)
         XCTAssertGreaterThanOrEqual(RideTiming.persistTimeout(estimate: large), 25)
         XCTAssertEqual(RideTiming.parseTimeout(estimate: 2), 16)
         XCTAssertEqual(RideTiming.authorizeTimeout, 75)
+        XCTAssertEqual(RideTiming.enrichmentEstimate, 8)
     }
 
     func testTimeoutCancelsSlowWork() async {
@@ -257,6 +266,94 @@ final class FITParserTests: XCTestCase {
         XCTAssertThrowsError(try parser.parse()) { XCTAssertEqual($0 as? FITError, .notOutdoorCycling) }
         parser = FITParser(data: wrap(session(subSport: 6)))
         XCTAssertThrowsError(try parser.parse()) { XCTAssertEqual($0 as? FITError, .notOutdoorCycling) }
+    }
+
+    func testWeatherQueryPointUsesRideMidpointGPS() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let end = start.addingTimeInterval(100)
+        let locations = [
+            FITActivity.Location(date: start, latitude: 31.0, longitude: 121.0, altitude: nil, speed: nil, accuracy: nil),
+            FITActivity.Location(date: start.addingTimeInterval(40), latitude: 31.2, longitude: 121.2, altitude: nil, speed: nil, accuracy: nil),
+            FITActivity.Location(date: start.addingTimeInterval(90), latitude: 31.5, longitude: 121.5, altitude: nil, speed: nil, accuracy: nil)
+        ]
+        let point = RideSampling.weatherQueryPoint(start: start, end: end, locations: locations)
+        XCTAssertEqual(point?.date, start.addingTimeInterval(50))
+        XCTAssertEqual(point?.latitude ?? 0, 31.2, accuracy: 0.0001)
+        XCTAssertEqual(point?.longitude ?? 0, 121.2, accuracy: 0.0001)
+        XCTAssertNil(RideSampling.weatherQueryPoint(start: start, end: end, locations: []))
+    }
+
+    func testTimeWeightedAverageIsNotArithmeticMeanAndIgnoresPause() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let moving = [DateInterval(start: start, end: start.addingTimeInterval(40))]
+        let samples: [(DateInterval, Double)] = [
+            (DateInterval(start: start, end: start.addingTimeInterval(10)), 4.0),
+            (DateInterval(start: start.addingTimeInterval(10), end: start.addingTimeInterval(40)), 8.0),
+            (DateInterval(start: start.addingTimeInterval(40), end: start.addingTimeInterval(100)), 1.0)
+        ]
+        let value = RideSampling.timeWeightedAverage(samples, moving: moving)
+        XCTAssertEqual(value ?? 0, 7.0, accuracy: 0.0001)
+        XCTAssertNotEqual(value ?? 0, 4.333, accuracy: 0.05)
+        XCTAssertNotEqual(value ?? 0, 6.0, accuracy: 0.05)
+    }
+
+    func testAverageMETsPrefersWatchSamples() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let end = start.addingTimeInterval(100)
+        let samples = [
+            sample(at: start, speed: 4.47),
+            sample(at: start.addingTimeInterval(99), speed: 4.47)
+        ]
+        let result = RideSampling.averageMETs(
+            watch: [(start: start, end: end, mets: 9.5)],
+            samples: samples, avgSpeed: 4.47,
+            start: start, end: end, duration: 100, events: []
+        )
+        XCTAssertEqual(result?.fromWatch, true)
+        XCTAssertEqual(result?.value ?? 0, 9.5, accuracy: 0.0001)
+    }
+
+    func testAverageMETsFallbackUsesTimerRunningSpeed() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let end = start.addingTimeInterval(100)
+        let events = [
+            FITActivity.TimerEvent(date: start.addingTimeInterval(40), paused: true),
+            FITActivity.TimerEvent(date: start.addingTimeInterval(80), paused: false)
+        ]
+        let samples = [
+            sample(at: start, speed: 8),
+            sample(at: start.addingTimeInterval(40), speed: 8),
+            sample(at: start.addingTimeInterval(41), speed: 0),
+            sample(at: start.addingTimeInterval(79), speed: 0),
+            sample(at: start.addingTimeInterval(80), speed: 8),
+            sample(at: start.addingTimeInterval(99), speed: 8)
+        ]
+        let result = RideSampling.averageMETs(
+            watch: [], samples: samples, avgSpeed: nil,
+            start: start, end: end, duration: 60, events: events
+        )
+        XCTAssertEqual(result?.fromWatch, false)
+        XCTAssertEqual(result?.value ?? 0, 12.0, accuracy: 0.0001)
+    }
+
+    func testTimerRunningIntervalsDropTrailingRestWhenNoEvents() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let end = start.addingTimeInterval(2000)
+        let intervals = RideSampling.timerRunningIntervals(start: start, end: end, duration: 1800, events: [])
+        XCTAssertEqual(intervals.count, 1)
+        XCTAssertEqual(intervals[0].duration, 1800, accuracy: 0.01)
+    }
+
+    func testCyclingMETsUsesCompendiumSpeedBands() {
+        XCTAssertEqual(RideSampling.cyclingMETs(speedMetersPerSecond: 4.0), 4.0)
+        XCTAssertEqual(RideSampling.cyclingMETs(speedMetersPerSecond: 4.48), 6.8)
+        XCTAssertEqual(RideSampling.cyclingMETs(speedMetersPerSecond: 5.628), 8.0)
+        XCTAssertEqual(RideSampling.cyclingMETs(speedMetersPerSecond: 9.0), 15.8)
+    }
+
+    private func sample(at date: Date, speed: Double? = nil) -> FITActivity.Sample {
+        FITActivity.Sample(date: date, latitude: nil, longitude: nil, altitude: nil, speed: speed,
+                           cadence: nil, power: nil, distance: nil, heartRate: nil, temperature: nil, accuracy: nil)
     }
 
     private func fixture(bigEndian: Bool = false) -> Data {

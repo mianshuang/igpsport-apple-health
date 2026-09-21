@@ -188,9 +188,14 @@ enum RideTiming {
         min(max(Double(points) / 9_000 + 0.6, 1), 6)
     }
 
+    static let enrichmentEstimate: TimeInterval = 8
+
     static func persistEstimate(gps: Int, speedSamples: Int, events: Int) -> TimeInterval {
-        let seconds = 2.2 + Double(gps) / 5_500 + Double(speedSamples) / Double(RideSampling.speedInterval) / 3_500 + Double(events) / 120
-        return min(max(seconds, 2), 45)
+        let seconds = 2.2 + enrichmentEstimate
+            + Double(gps) / 5_500
+            + Double(speedSamples) / Double(RideSampling.speedInterval) / 3_500
+            + Double(events) / 120
+        return min(max(seconds, 6), 50)
     }
 
     static func persistEstimate(activity: FITActivity) -> TimeInterval {
@@ -698,6 +703,117 @@ enum RideSampling {
             intervals.append(DateInterval(start: cursor, end: end))
         }
         return intervals.isEmpty ? [DateInterval(start: start, end: end)] : intervals
+    }
+
+    /// FIT `total_timer_time` 对应的骑行区间：有 timer 事件就按 pause/resume，否则把休息整段落在结束前。
+    static func timerRunningIntervals(start: Date, end: Date, duration: TimeInterval,
+                                      events: [FITActivity.TimerEvent]) -> [DateInterval] {
+        if !events.isEmpty {
+            return movingIntervals(start: start, end: end, events: events)
+        }
+        let rest = end.timeIntervalSince(start) - duration
+        if rest > 1 {
+            let pauseAt = end.addingTimeInterval(-rest)
+            if pauseAt > start {
+                return [DateInterval(start: start, end: pauseAt)]
+            }
+        }
+        return [DateInterval(start: start, end: end)]
+    }
+
+    /// 骑行墙钟中点，以及最接近该时刻的 GPS 点。天气只查这一个代表值。
+    static func weatherQueryPoint(start: Date, end: Date,
+                                  locations: [FITActivity.Location]) -> (date: Date, latitude: Double, longitude: Double)? {
+        guard end > start, let first = locations.first else { return nil }
+        let midpoint = start.addingTimeInterval(end.timeIntervalSince(start) / 2)
+        var best = first
+        var bestDelta = abs(first.date.timeIntervalSince(midpoint))
+        for location in locations.dropFirst() {
+            let delta = abs(location.date.timeIntervalSince(midpoint))
+            if delta < bestDelta {
+                best = location
+                bestDelta = delta
+            }
+        }
+        return (midpoint, best.latitude, best.longitude)
+    }
+
+    /// Σ(valueᵢ × Δtᵢ) / ΣΔtᵢ，Δt 只计与 `moving` 重叠的部分。
+    static func timeWeightedAverage(_ samples: [(DateInterval, Double)], moving: [DateInterval]) -> Double? {
+        var weighted = 0.0
+        var duration = 0.0
+        for (interval, value) in samples {
+            guard value.isFinite else { continue }
+            for window in moving {
+                let start = max(interval.start, window.start)
+                let end = min(interval.end, window.end)
+                let dt = end.timeIntervalSince(start)
+                if dt > 0 {
+                    weighted += value * dt
+                    duration += dt
+                }
+            }
+        }
+        guard duration > 0 else { return nil }
+        return weighted / duration
+    }
+
+    /// 有时长的样本沿用起止；瞬时点则延续到下一个点（最后一点延到 `horizon`）。
+    static func quantityIntervals(_ points: [(start: Date, end: Date, value: Double)],
+                                  horizon: Date) -> [(DateInterval, Double)] {
+        let sorted = points.filter { $0.value.isFinite }.sorted { $0.start < $1.start }
+        return sorted.enumerated().compactMap { index, point in
+            let end: Date
+            if point.end > point.start.addingTimeInterval(0.5) {
+                end = point.end
+            } else if index + 1 < sorted.count {
+                end = sorted[index + 1].start
+            } else {
+                end = max(horizon, point.start.addingTimeInterval(1))
+            }
+            guard end > point.start else { return nil }
+            return (DateInterval(start: point.start, end: end), point.value)
+        }
+    }
+
+    /// Compendium of Physical Activities（2011）户外骑行，按 mph 分档。
+    static func cyclingMETs(speedMetersPerSecond: Double) -> Double {
+        let mph = speedMetersPerSecond * 2.2369362920544
+        switch mph {
+        case ..<10: return 4.0
+        case ..<12: return 6.8
+        case ..<14: return 8.0
+        case ..<16: return 10.0
+        case ..<20: return 12.0
+        default: return 15.8
+        }
+    }
+
+    /// 有 Watch MET 样本时做时间加权；否则用码表速度按 Compendium 回退。只计 timer-running。
+    static func averageMETs(watch: [(start: Date, end: Date, mets: Double)],
+                            samples: [FITActivity.Sample], avgSpeed: Double?,
+                            start: Date, end: Date, duration: TimeInterval,
+                            events: [FITActivity.TimerEvent]) -> (value: Double, fromWatch: Bool)? {
+        let moving = timerRunningIntervals(start: start, end: end, duration: duration, events: events)
+        let watchIntervals = quantityIntervals(
+            watch.filter { $0.mets > 0 }.map { (start: $0.start, end: $0.end, value: $0.mets) },
+            horizon: end
+        )
+        if let value = timeWeightedAverage(watchIntervals, moving: moving) {
+            return (value, true)
+        }
+        let speedMETs: [(DateInterval, Double)]
+        let dated = samples.compactMap { sample -> (start: Date, end: Date, value: Double)? in
+            guard let speed = sample.speed, speed >= 0, speed.isFinite else { return nil }
+            return (sample.date, sample.date, cyclingMETs(speedMetersPerSecond: speed))
+        }
+        if dated.isEmpty, let avgSpeed, avgSpeed >= 0, avgSpeed.isFinite {
+            speedMETs = moving.map { ($0, cyclingMETs(speedMetersPerSecond: avgSpeed)) }
+        } else {
+            speedMETs = quantityIntervals(dated, horizon: end)
+        }
+        guard let value = timeWeightedAverage(speedMETs, moving: moving) else { return nil }
+        return (value, false)
     }
 }
 

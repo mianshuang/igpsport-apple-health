@@ -1,28 +1,254 @@
 // !$*UTF8*$!
-{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
-E73C1CD0AA67DD9C1A7C2025 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FITHealthApp.swift"; sourceTree = "<group>"; };
-30253ADCC509E2AC319B2F00 = { isa = PBXBuildFile; fileRef = E73C1CD0AA67DD9C1A7C2025; };
-9727B9EED8ACD2EE46E136A0 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView.swift"; sourceTree = "<group>"; };
-E11030640FCC0E9D6783BF78 = { isa = PBXBuildFile; fileRef = 9727B9EED8ACD2EE46E136A0; };
-21B39791AD98166BCF006EC5 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HealthImporter.swift"; sourceTree = "<group>"; };
-7DBA4989A7939FB5AAADAF51 = { isa = PBXBuildFile; fileRef = 21B39791AD98166BCF006EC5; };
-C2A0B6E54C14D19BDDC4B270 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Core/FITParser.swift"; sourceTree = "<group>"; };
-1EBFAD85196D945BAE6C7771 = { isa = PBXBuildFile; fileRef = C2A0B6E54C14D19BDDC4B270; };
-7B594B6DB375E1BF3F23CDD6 = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info.plist"; sourceTree = "<group>"; };
-B9BE1742B84A7B32A83489EC = { isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "FITHealth.entitlements"; sourceTree = "<group>"; };
-38A007151ABE87CC01A5B6E9 = { isa = PBXFileReference; explicitFileType = wrapper.application; path = FITHealth.app; sourceTree = BUILT_PRODUCTS_DIR; };
-69F8D45498D7E20DA99BB780 = { isa = PBXGroup; path = FITHealth; sourceTree = "<group>"; children = (E73C1CD0AA67DD9C1A7C2025,9727B9EED8ACD2EE46E136A0,21B39791AD98166BCF006EC5,C2A0B6E54C14D19BDDC4B270,7B594B6DB375E1BF3F23CDD6,B9BE1742B84A7B32A83489EC,); };
-FBDC4F23F93125BBEEAE800C = { isa = PBXGroup; name = Products; sourceTree = "<group>"; children = (38A007151ABE87CC01A5B6E9,); };
-DC76E9F0C0006E8F919E0C51 = { isa = PBXGroup; sourceTree = "<group>"; children = (69F8D45498D7E20DA99BB780,FBDC4F23F93125BBEEAE800C,); };
-BCE16DD0260827ECF338C787 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (30253ADCC509E2AC319B2F00,E11030640FCC0E9D6783BF78,7DBA4989A7939FB5AAADAF51,1EBFAD85196D945BAE6C7771,); runOnlyForDeploymentPostprocessing = 0; };
-7561BFB015D8F536760CB671 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-0189424A5A60FED329FA868E = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-89E1FD6268CC0F221A2BE178 = { isa = XCBuildConfiguration; name = Debug; buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0; CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; }; };
-7082CC0B6FC1282FCEABD07A = { isa = XCBuildConfiguration; name = Debug; buildSettings = { PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = com.mianshuang.FITHealth; TARGETED_DEVICE_FAMILY = 1; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = FITHealth/Info.plist; INFOPLIST_KEY_CFBundleDisplayName = "骑行导入"; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait; CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = FITHealth/FITHealth.entitlements; CURRENT_PROJECT_VERSION = 1; MARKETING_VERSION = 1.0; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG; }; };
-E6DE6C99132752C914FEF632 = { isa = XCBuildConfiguration; name = Release; buildSettings = { SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0; CLANG_ENABLE_MODULES = YES; SWIFT_VERSION = 5.0; SWIFT_COMPILATION_MODE = wholemodule; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; }; };
-639A7CA24D39909E713B47F7 = { isa = XCBuildConfiguration; name = Release; buildSettings = { PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = com.mianshuang.FITHealth; TARGETED_DEVICE_FAMILY = 1; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = FITHealth/Info.plist; INFOPLIST_KEY_CFBundleDisplayName = "骑行导入"; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait; CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = FITHealth/FITHealth.entitlements; CURRENT_PROJECT_VERSION = 1; MARKETING_VERSION = 1.0; SWIFT_EMIT_LOC_STRINGS = YES;  }; };
-862894B703A6DEDF96A9DD6C = { isa = XCConfigurationList; buildConfigurations = (89E1FD6268CC0F221A2BE178,E6DE6C99132752C914FEF632,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-C57128001CE614BF8549D6BB = { isa = XCConfigurationList; buildConfigurations = (7082CC0B6FC1282FCEABD07A,639A7CA24D39909E713B47F7,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
-0E8A3AD980EC179856012B7E = { isa = PBXNativeTarget; buildConfigurationList = C57128001CE614BF8549D6BB; buildPhases = (BCE16DD0260827ECF338C787,7561BFB015D8F536760CB671,0189424A5A60FED329FA868E,); buildRules = (); dependencies = (); name = FITHealth; productName = FITHealth; productReference = 38A007151ABE87CC01A5B6E9; productType = "com.apple.product-type.application"; };
-98F54143AB4E86B28C3AFEE0 = { isa = PBXProject; attributes = { LastUpgradeCheck = 2700; TargetAttributes = { 0E8A3AD980EC179856012B7E = { CreatedOnToolsVersion = 27.0; SystemCapabilities = { com.apple.HealthKit = { enabled = 1; }; }; }; }; }; buildConfigurationList = 862894B703A6DEDF96A9DD6C; compatibilityVersion = "Xcode 14.0"; developmentRegion = "zh-Hans"; knownRegions = ("zh-Hans", en, Base); mainGroup = DC76E9F0C0006E8F919E0C51; productRefGroup = FBDC4F23F93125BBEEAE800C; projectDirPath = ""; projectRoot = ""; targets = (0E8A3AD980EC179856012B7E,); };
-}; rootObject = 98F54143AB4E86B28C3AFEE0; }
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1EBFAD85196D945BAE6C7771 /* Core/FITParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A0B6E54C14D19BDDC4B270 /* Core/FITParser.swift */; };
+		30253ADCC509E2AC319B2F00 /* FITHealthApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73C1CD0AA67DD9C1A7C2025 /* FITHealthApp.swift */; };
+		7DBA4989A7939FB5AAADAF51 /* HealthImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21B39791AD98166BCF006EC5 /* HealthImporter.swift */; };
+		D8A12B90C4E75F31A06D7B22 /* WorkoutEnrichment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E4C71A08B2D4F6E91C3A055 /* WorkoutEnrichment.swift */; };
+		E11030640FCC0E9D6783BF78 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9727B9EED8ACD2EE46E136A0 /* ContentView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		21B39791AD98166BCF006EC5 /* HealthImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthImporter.swift; sourceTree = "<group>"; };
+		38A007151ABE87CC01A5B6E9 /* FITHealth.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = FITHealth.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7B594B6DB375E1BF3F23CDD6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		9727B9EED8ACD2EE46E136A0 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		9E4C71A08B2D4F6E91C3A055 /* WorkoutEnrichment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkoutEnrichment.swift; sourceTree = "<group>"; };
+		B9BE1742B84A7B32A83489EC /* FITHealth.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FITHealth.entitlements; sourceTree = "<group>"; };
+		C2A0B6E54C14D19BDDC4B270 /* Core/FITParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/FITParser.swift; sourceTree = "<group>"; };
+		E73C1CD0AA67DD9C1A7C2025 /* FITHealthApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FITHealthApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7561BFB015D8F536760CB671 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		69F8D45498D7E20DA99BB780 /* FITHealth */ = {
+			isa = PBXGroup;
+			children = (
+				E73C1CD0AA67DD9C1A7C2025 /* FITHealthApp.swift */,
+				9727B9EED8ACD2EE46E136A0 /* ContentView.swift */,
+				21B39791AD98166BCF006EC5 /* HealthImporter.swift */,
+				9E4C71A08B2D4F6E91C3A055 /* WorkoutEnrichment.swift */,
+				C2A0B6E54C14D19BDDC4B270 /* Core/FITParser.swift */,
+				7B594B6DB375E1BF3F23CDD6 /* Info.plist */,
+				B9BE1742B84A7B32A83489EC /* FITHealth.entitlements */,
+			);
+			path = FITHealth;
+			sourceTree = "<group>";
+		};
+		DC76E9F0C0006E8F919E0C51 = {
+			isa = PBXGroup;
+			children = (
+				69F8D45498D7E20DA99BB780 /* FITHealth */,
+				FBDC4F23F93125BBEEAE800C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		FBDC4F23F93125BBEEAE800C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				38A007151ABE87CC01A5B6E9 /* FITHealth.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0E8A3AD980EC179856012B7E /* FITHealth */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C57128001CE614BF8549D6BB /* Build configuration list for PBXNativeTarget "FITHealth" */;
+			buildPhases = (
+				BCE16DD0260827ECF338C787 /* Sources */,
+				7561BFB015D8F536760CB671 /* Frameworks */,
+				0189424A5A60FED329FA868E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FITHealth;
+			productName = FITHealth;
+			productReference = 38A007151ABE87CC01A5B6E9 /* FITHealth.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		98F54143AB4E86B28C3AFEE0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					0E8A3AD980EC179856012B7E = {
+						CreatedOnToolsVersion = 27.0;
+						SystemCapabilities = {
+							com.apple.HealthKit = {
+								enabled = 1;
+							};
+							com.apple.WeatherKit = {
+								enabled = 1;
+							};
+						};
+					};
+				};
+			};
+			buildConfigurationList = 862894B703A6DEDF96A9DD6C /* Build configuration list for PBXProject "FITHealth" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = "zh-Hans";
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				"zh-Hans",
+				en,
+				Base,
+			);
+			mainGroup = DC76E9F0C0006E8F919E0C51;
+			productRefGroup = FBDC4F23F93125BBEEAE800C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0E8A3AD980EC179856012B7E /* FITHealth */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0189424A5A60FED329FA868E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BCE16DD0260827ECF338C787 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				30253ADCC509E2AC319B2F00 /* FITHealthApp.swift in Sources */,
+				E11030640FCC0E9D6783BF78 /* ContentView.swift in Sources */,
+				7DBA4989A7939FB5AAADAF51 /* HealthImporter.swift in Sources */,
+				D8A12B90C4E75F31A06D7B22 /* WorkoutEnrichment.swift in Sources */,
+				1EBFAD85196D945BAE6C7771 /* Core/FITParser.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		639A7CA24D39909E713B47F7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = FITHealth/FITHealth.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FITHealth/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "骑行导入";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "读取 Apple Watch 在本次骑行时段记录的体能消耗（MET），用来写入平均强度。不读取其它健康数据。";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "将 iGPSPORT 户外骑行的路线、距离、速度、圈段、热量和心率写入 Apple 健康。";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mianshuang.FITHealth;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		7082CC0B6FC1282FCEABD07A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = FITHealth/FITHealth.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FITHealth/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "骑行导入";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "读取 Apple Watch 在本次骑行时段记录的体能消耗（MET），用来写入平均强度。不读取其它健康数据。";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "将 iGPSPORT 户外骑行的路线、距离、速度、圈段、热量和心率写入 Apple 健康。";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mianshuang.FITHealth;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		89E1FD6268CC0F221A2BE178 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		E6DE6C99132752C914FEF632 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		862894B703A6DEDF96A9DD6C /* Build configuration list for PBXProject "FITHealth" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				89E1FD6268CC0F221A2BE178 /* Debug */,
+				E6DE6C99132752C914FEF632 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C57128001CE614BF8549D6BB /* Build configuration list for PBXNativeTarget "FITHealth" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7082CC0B6FC1282FCEABD07A /* Debug */,
+				639A7CA24D39909E713B47F7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 98F54143AB4E86B28C3AFEE0 /* Project object */;
+}

@@ -13,6 +13,7 @@ final class HealthImporter {
     private let powerType = HKQuantityType(.cyclingPower)
     private let energyType = HKQuantityType(.activeEnergyBurned)
     private let heartType = HKQuantityType(.heartRate)
+    private let effortType = HKQuantityType(.physicalEffort)
 
     func save(_ activity: FITActivity, onPhase: @escaping @Sendable (ImportPhase) -> Void = { _ in }) async throws {
         RideLog.phase("写入 Apple 健康")
@@ -23,12 +24,12 @@ final class HealthImporter {
         }
         RideLog.ok("isHealthDataAvailable", "健康可用")
         let types = shareTypes(activity)
-        RideLog.step("requestAuthorization(toShare:)", "向系统申请本次骑行需要写入的类型",
-                     extra: types.map(typeName).sorted().joined(separator: "、"))
+        RideLog.step("requestAuthorization(toShare:read:)", "申请写入本次骑行，并读取 Watch 体能消耗（MET）",
+                     extra: "写入 \(types.map(typeName).sorted().joined(separator: "、"))；读取 physicalEffort")
         onPhase(.authorizing)
         do {
             try await withTimeout(RideTiming.authorizeTimeout) {
-                try await self.store.requestAuthorization(toShare: types, read: [])
+                try await self.store.requestAuthorization(toShare: types, read: [self.effortType])
             }
         } catch RideWaitError.timedOut(let seconds) {
             RideLog.fail("requestAuthorization", "等待授权超时", extra: RideTiming.secondsLabel(seconds))
@@ -96,6 +97,8 @@ private func persist(_ activity: FITActivity, store: HKHealthStore) async throws
     configuration.activityType = .cycling
     configuration.locationType = .outdoor
     RideLog.step("HKWorkoutConfiguration", "固定为室外骑行，不会写成室内或其它运动")
+    let extraMetadata = await WorkoutEnrichment.metadata(for: activity, store: store)
+    try Task.checkCancellation()
     let device = HKDevice(name: "iGPSPORT", manufacturer: "iGPSPORT", model: "FIT",
                           hardwareVersion: nil, firmwareVersion: nil, softwareVersion: "1.0",
                           localIdentifier: nil, udiDeviceIdentifier: nil)
@@ -143,8 +146,9 @@ private func persist(_ activity: FITActivity, store: HKHealthStore) async throws
 
         try await addEvents(activity, to: builder, clock: &clock)
 
-        let info = metadata(activity, meterPerSecond: meterPerSecond)
-        RideLog.step("addMetadata", "写入均速/极速、爬升、品牌等整场元数据", extra: metadataSummary(info))
+        var info = metadata(activity, meterPerSecond: meterPerSecond)
+        info.merge(extraMetadata, uniquingKeysWith: { _, new in new })
+        RideLog.step("addMetadata", "写入均速/极速、爬升、天气、平均强度和品牌等整场元数据", extra: metadataSummary(info))
         try await builder.addMetadata(info)
         RideLog.ok("addMetadata", "元数据已挂到本次运动", extra: clock.extra())
 
@@ -462,6 +466,10 @@ private func metadataSummary(_ info: [String: Any]) -> String {
         case HKMetadataKeyElevationAscended: "累计爬升"
         case HKMetadataKeyElevationDescended: "累计下降"
         case HKMetadataKeyWeatherTemperature: "环境温度"
+        case HKMetadataKeyWeatherHumidity: "湿度"
+        case HKMetadataKeyWeatherCondition: "天气状况"
+        case HKMetadataKeyBarometricPressure: "气压"
+        case HKMetadataKeyAverageMETs: "平均MET"
         case "iGPSPORTLapAvgSpeedsKmh": "圈均速km/h"
         default: key
         }

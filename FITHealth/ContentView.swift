@@ -323,7 +323,7 @@ private struct WaitState {
         case .reading: "解析 FIT，文件越大越久"
         case .preview: "把 GPS 点描成折线，没有底图"
         case .authorizing: "系统弹窗请点「全选」再「允许」"
-        case .writing: "写入路线、距离、速度和圈段"
+        case .writing: "写入路线、天气、平均强度和圈段"
         }
     }
 }
