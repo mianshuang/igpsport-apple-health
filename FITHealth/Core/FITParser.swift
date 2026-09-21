@@ -176,16 +176,71 @@ enum RideLog {
         var text = "[骑行导入] \(mark) \(call)  // \(meaning)"
         if let extra, !extra.isEmpty { text += "  |  \(extra)" }
         print(text)
-        let line = text + "\n"
-        let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let file = folder.appendingPathComponent("ride-import.log")
-        if FileManager.default.fileExists(atPath: file.path), let handle = try? FileHandle(forWritingTo: file) {
-            defer { try? handle.close() }
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
-        } else {
-            try? Data(line.utf8).write(to: file)
+    }
+}
+
+enum RideTiming {
+    static func parseEstimate(bytes: Int) -> TimeInterval {
+        min(max(Double(bytes) / 280_000 + 0.8, 1), 8)
+    }
+
+    static func previewEstimate(points: Int) -> TimeInterval {
+        min(max(Double(points) / 9_000 + 0.6, 1), 6)
+    }
+
+    static func persistEstimate(gps: Int, speedSamples: Int, events: Int) -> TimeInterval {
+        let seconds = 2.2 + Double(gps) / 5_500 + Double(speedSamples) / Double(RideSampling.speedInterval) / 3_500 + Double(events) / 120
+        return min(max(seconds, 2), 45)
+    }
+
+    static func persistEstimate(activity: FITActivity) -> TimeInterval {
+        persistEstimate(
+            gps: activity.locations.count,
+            speedSamples: activity.samples.reduce(0) { $0 + (($1.speed ?? 0) > 0 ? 1 : 0) },
+            events: activity.timerEvents.count + activity.splits.count
+        )
+    }
+
+    static func persistTimeout(estimate: TimeInterval) -> TimeInterval {
+        min(max(estimate * 10, 25), 90)
+    }
+
+    static func parseTimeout(estimate: TimeInterval) -> TimeInterval {
+        min(max(estimate * 8, 12), 40)
+    }
+
+    static func previewTimeout(estimate: TimeInterval) -> TimeInterval {
+        min(max(estimate * 8, 8), 25)
+    }
+
+    static let authorizeEstimate: TimeInterval = 8
+    static let authorizeTimeout: TimeInterval = 75
+
+    static func secondsLabel(_ value: TimeInterval) -> String {
+        "约 \(max(1, Int(value.rounded()))) 秒"
+    }
+}
+
+enum RideWaitError: LocalizedError, Equatable {
+    case timedOut(TimeInterval)
+    var errorDescription: String? {
+        switch self {
+        case .timedOut(let seconds):
+            "等待超过 \(Int(seconds.rounded())) 秒仍未完成。若健康权限弹窗还在，请先点「全选」再「允许」；否则请重试。"
         }
+    }
+}
+
+func withTimeout<T: Sendable>(_ seconds: TimeInterval, operation: @escaping @Sendable () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await operation() }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(max(seconds, 0.1) * 1_000_000_000))
+            throw RideWaitError.timedOut(seconds)
+        }
+        defer { group.cancelAll() }
+        guard let value = try await group.next() else { throw RideWaitError.timedOut(seconds) }
+        return value
     }
 }
 
@@ -567,6 +622,7 @@ struct FITParser {
 
 enum RideSampling {
     static let speedInterval = 5
+    static let previewMaxPoints = 720
 
     static func downsample(_ points: [(Date, Double)], interval: Int = speedInterval) -> [(Date, Double)] {
         guard interval > 1, points.count > 1 else { return points }
@@ -581,6 +637,12 @@ enum RideSampling {
             index = end
         }
         return result
+    }
+
+    static func previewPoints<T>(_ points: [T], maxCount: Int = previewMaxPoints) -> [T] {
+        guard maxCount > 1, points.count > maxCount else { return points }
+        let step = Double(points.count - 1) / Double(maxCount - 1)
+        return (0..<maxCount).map { points[min(points.count - 1, Int((Double($0) * step).rounded()))] }
     }
 }
 

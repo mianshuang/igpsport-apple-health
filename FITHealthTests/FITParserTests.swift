@@ -148,6 +148,40 @@ final class FITParserTests: XCTestCase {
         XCTAssertEqual(RideSampling.speedInterval, 5)
     }
 
+    func testPreviewPointsKeepsEndpoints() {
+        let points = Array(0..<1_000)
+        let reduced = RideSampling.previewPoints(points, maxCount: 720)
+        XCTAssertEqual(reduced.count, 720)
+        XCTAssertEqual(reduced.first, 0)
+        XCTAssertEqual(reduced.last, 999)
+        XCTAssertEqual(RideSampling.previewPoints(Array(0..<10)).count, 10)
+    }
+
+    func testPersistEstimateGrowsWithGPSAndHasTimeout() {
+        let small = RideTiming.persistEstimate(gps: 100, speedSamples: 80, events: 2)
+        let large = RideTiming.persistEstimate(gps: 6_299, speedSamples: 6_299, events: 81)
+        XCTAssertLessThan(small, large)
+        XCTAssertGreaterThanOrEqual(large, 2)
+        XCTAssertLessThanOrEqual(RideTiming.persistTimeout(estimate: large), 90)
+        XCTAssertGreaterThanOrEqual(RideTiming.persistTimeout(estimate: large), 25)
+        XCTAssertEqual(RideTiming.parseTimeout(estimate: 2), 16)
+        XCTAssertEqual(RideTiming.authorizeTimeout, 75)
+    }
+
+    func testTimeoutCancelsSlowWork() async {
+        do {
+            _ = try await withTimeout(0.05) {
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+                return 1
+            }
+            XCTFail("应判定超时")
+        } catch let error as RideWaitError {
+            XCTAssertEqual(error, .timedOut(0.05))
+        } catch {
+            XCTFail("\(error)")
+        }
+    }
+
     func testRejectsNonCyclingAndIndoor() {
         var parser = FITParser(data: wrap(session(sport: 1)))
         XCTAssertThrowsError(try parser.parse()) { XCTAssertEqual($0 as? FITError, .notOutdoorCycling) }

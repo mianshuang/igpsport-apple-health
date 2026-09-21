@@ -1,6 +1,10 @@
 import CoreLocation
 import HealthKit
 
+enum ImportPhase: Sendable {
+    case authorizing, writing
+}
+
 final class HealthImporter {
     private let store = HKHealthStore()
     private let distanceType = HKQuantityType(.distanceCycling)
@@ -10,7 +14,7 @@ final class HealthImporter {
     private let energyType = HKQuantityType(.activeEnergyBurned)
     private let heartType = HKQuantityType(.heartRate)
 
-    func save(_ activity: FITActivity) async throws {
+    func save(_ activity: FITActivity, onPhase: @escaping @Sendable (ImportPhase) -> Void = { _ in }) async throws {
         RideLog.phase("写入 Apple 健康")
         RideLog.step("HKHealthStore.isHealthDataAvailable()", "确认本机能否使用健康")
         guard HKHealthStore.isHealthDataAvailable() else {
@@ -21,8 +25,14 @@ final class HealthImporter {
         let types = shareTypes(activity)
         RideLog.step("requestAuthorization(toShare:)", "向系统申请本次骑行需要写入的类型",
                      extra: types.map(typeName).sorted().joined(separator: "、"))
+        onPhase(.authorizing)
         do {
-            try await store.requestAuthorization(toShare: types, read: [])
+            try await withTimeout(RideTiming.authorizeTimeout) {
+                try await self.store.requestAuthorization(toShare: types, read: [])
+            }
+        } catch RideWaitError.timedOut(let seconds) {
+            RideLog.fail("requestAuthorization", "等待授权超时", extra: RideTiming.secondsLabel(seconds))
+            throw ImportError.timedOut(seconds)
         } catch {
             RideLog.fail("requestAuthorization", "授权失败或超时，需在系统弹窗里允许写入", extra: error.localizedDescription)
             throw ImportError.permission
@@ -45,11 +55,24 @@ final class HealthImporter {
             RideLog.fail("requestAuthorization", "所需类型未全部授权，中止写入")
             throw ImportError.permission
         }
+        let estimate = RideTiming.persistEstimate(activity: activity)
+        let timeout = RideTiming.persistTimeout(estimate: estimate)
+        RideLog.step("Task.detached", "后台写入健康", extra: "预计 \(RideTiming.secondsLabel(estimate))，超时 \(Int(timeout)) 秒")
+        onPhase(.writing)
         let store = self.store
-        RideLog.step("Task.detached", "把 HealthKit 写入放到后台，避免卡住界面")
-        try await Task.detached(priority: .userInitiated) {
-            try await persist(activity, store: store)
-        }.value
+        do {
+            try await withTimeout(timeout) {
+                try await Task.detached(priority: .userInitiated) {
+                    try await persist(activity, store: store)
+                }.value
+            }
+        } catch RideWaitError.timedOut(let seconds) {
+            RideLog.fail("persist", "写入超时", extra: RideTiming.secondsLabel(seconds))
+            throw ImportError.timedOut(seconds)
+        } catch is CancellationError {
+            RideLog.fail("persist", "写入任务已取消")
+            throw ImportError.timedOut(timeout)
+        }
     }
 
     private func shareTypes(_ activity: FITActivity) -> Set<HKSampleType> {
@@ -83,6 +106,7 @@ private func persist(_ activity: FITActivity, store: HKHealthStore) async throws
         RideLog.step("beginCollection(at:)", "打开收集窗口，起点是 FIT start_time")
         try await builder.beginCollection(at: activity.start)
         RideLog.ok("beginCollection(at:)", "已开始收集", extra: clock.extra(RideLog.date(activity.start)))
+        try Task.checkCancellation()
 
         routeBuilder = try await insertRoute(activity, to: builder, clock: &clock)
         try await addTotals(activity, to: builder, clock: &clock)
@@ -126,6 +150,7 @@ private func persist(_ activity: FITActivity, store: HKHealthStore) async throws
         RideLog.step("endCollection(at:)", "关闭收集窗口，终点是 FIT 墙钟结束时间")
         try await builder.endCollection(at: activity.end)
         RideLog.ok("endCollection(at:)", "收集结束", extra: clock.extra(RideLog.date(activity.end)))
+        try Task.checkCancellation()
 
         RideLog.step("finishWorkout()", "保存 HKWorkout。seriesBuilder 拿到的路线会随 WorkoutBuilder 一起 finish，不能再 finishRoute")
         guard let workout = try await builder.finishWorkout() else {
@@ -138,6 +163,10 @@ private func persist(_ activity: FITActivity, store: HKHealthStore) async throws
             RideLog.skip("finishRoute(with:)", "iOS 明确拒绝：附着在 WorkoutBuilder 上的 route builder 会随 finishWorkout 完成。再调用会抛 Invalid Argument")
         }
         RideLog.ok("persist", "本次户外骑行已写入健康", extra: clock.extra())
+    } catch is CancellationError {
+        RideLog.fail("persist", "写入超时或被取消，discardWorkout() 丢弃未完成的运动")
+        builder.discardWorkout()
+        throw CancellationError()
     } catch {
         RideLog.fail("persist", "写入中途失败，discardWorkout() 丢弃未完成的运动", extra: error.localizedDescription)
         builder.discardWorkout()
@@ -160,12 +189,13 @@ private func insertRoute(_ activity: FITActivity, to builder: HKWorkoutBuilder,
     }
     RideLog.ok("seriesBuilder(for: .workoutRoute())", "已拿到路线 builder，随后只 insertRouteData，先不 finish")
     let size = 1000
+    RideLog.step("insertRouteData", "按批写入 GPS 点，路线此时只在内存里", extra: "\(locations.count) 点，每批 \(size)")
     var index = 0
     var batch = 0
     while index < locations.count {
+        try Task.checkCancellation()
         let end = min(index + size, locations.count)
         batch += 1
-        RideLog.step("insertRouteData", "按批写入 GPS 点，路线此时只在内存里", extra: "第 \(batch) 批 \(index + 1)–\(end) / \(locations.count)")
         try await route.insertRouteData(Array(locations[index..<end]))
         index = end
     }
@@ -214,6 +244,7 @@ private func addSeries(store: HKHealthStore, device: HKDevice, type: HKQuantityT
         var inserted = 0
         var skipped = 0
         for (date, value) in points {
+            if inserted % 250 == 0 { try Task.checkCancellation() }
             if let last, date <= last {
                 skipped += 1
                 continue
@@ -223,6 +254,9 @@ private func addSeries(store: HKHealthStore, device: HKDevice, type: HKQuantityT
             inserted += 1
         }
         RideLog.ok("\(call).insert", "序列点已写入 series builder", extra: "插入 \(inserted)，跳过倒退时间 \(skipped)")
+    } catch is CancellationError {
+        series.discard()
+        throw CancellationError()
     } catch {
         RideLog.fail("\(call).insert", "序列插入失败，丢弃该 series", extra: error.localizedDescription)
         series.discard()
@@ -373,12 +407,13 @@ private func typeName(_ type: HKSampleType) -> String {
 }
 
 private enum ImportError: LocalizedError {
-    case unavailable, permission, saveFailed
+    case unavailable, permission, saveFailed, timedOut(TimeInterval)
     var errorDescription: String? {
         switch self {
         case .unavailable: "当前设备无法使用 Apple 健康。"
         case .permission: "请允许写入本次骑行所需的健康数据，然后重新导入。可在系统设置的健康权限中修改。"
         case .saveFailed: "骑行未能保存，请重试。"
+        case .timedOut(let seconds): RideWaitError.timedOut(seconds).errorDescription
         }
     }
 }

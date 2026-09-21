@@ -19,7 +19,7 @@
 
 Cursor 侧已配置官方 Xcode MCP（`xcrun mcpbridge`）。Xcode → Settings → Intelligence 中打开 “Allow external agents to use Xcode tools”。
 
-选择 FIT 文件后点「写入 Apple 健康」，允许本次涉及的写入类型。应用的 Documents 会显示在「文件 → 我的 iPhone → FIT 导入」。导入后到健康 App 的这条骑行记录里核对路线。请勿重复导入同一文件。
+选择 FIT 文件后点「写入 Apple 健康」，允许本次涉及的写入类型。读取、路线预览和写入都会显示预估耗时；授权约 75 秒、写入按 GPS 点数放宽到最多 90 秒，超时即停止等待。应用的 Documents 会显示在「文件 → 我的 iPhone → FIT 导入」。导入后到健康 App 的这条骑行记录里核对路线。请勿重复导入同一文件。
 
 ## 实测文件
 
@@ -56,7 +56,7 @@ Cursor 侧已配置官方 Xcode MCP（`xcrun mcpbridge`）。Xcode → Settings 
 | session `total_distance` | `distanceCycling` | 米，一条总量 |
 | record `enhanced_speed`（优先）或 `speed` | `cyclingSpeed` 采样 | 按 `speedInterval = 5` 每 5 个点取平均后再写入 |
 | session `enhanced_avg_speed` / `enhanced_max_speed` | `HKMetadataKeyAverageSpeed` / `MaximumSpeed` | 也用于摘要 |
-| lap（本机 5 km 自动圈） | `HKWorkoutEvent.lap` | 圈平均/最大速度放事件 metadata。没有圈时按累计距离切 1 km |
+| lap（本机 5 km 自动圈） | `HKWorkoutEvent.lap` | 圈事件不带速度 metadata（健康会崩溃）。圈均速在整场 `iGPSPORTLapAvgSpeedsKmh`。没有圈时按累计距离切 1 km |
 | session `total_calories` | `activeEnergyBurned` | 千卡 |
 | record `heart_rate` | `heartRate` | 有心率带才有 |
 | record `cadence` | `cyclingCadence` | 有踏频传感器才有 |
@@ -77,14 +77,14 @@ Cursor 侧已配置官方 Xcode MCP（`xcrun mcpbridge`）。Xcode → Settings 
 
 ### 配速
 
-健康对骑行展示的是 **速度（km/h）**，没有单独的「配速」类型。时段速度来自整场平均/最大速度 metadata、稀释后的 `cyclingSpeed`，以及圈段 lap 事件上的平均速度。本机自动圈是 5 km；没有 lap 时按 1 km 切。
+健康对骑行展示的是 **速度（km/h）**，没有单独的「配速」类型。时段速度来自整场平均/最大速度 metadata、稀释后的 `cyclingSpeed`，以及圈段 lap 事件。圈均速写在整场 metadata `iGPSPORTLapAvgSpeedsKmh`。本机自动圈是 5 km；没有 lap 时按 1 km 切。
 
 GPS 路线由 `HKWorkoutBuilder.seriesBuilder(for: .workoutRoute())` 收集点，随 `finishWorkout()` 一并保存并关联。不要再对这个 builder 调用 `finishRoute(with:)`，iOS 会抛错。独立 `HKWorkoutRouteBuilder(healthStore:)` 才需要先保存 Workout 再 `finishRoute`。应用内路线预览只描线，没有底图。
 
 ## 文件
 
 - `.cursor/rules/igpsport-cycling.mdc`：范围紧箍咒
-- `FITHealth/ContentView.swift`：选文件、摘要、无底图路线描线预览、写入
+- `FITHealth/ContentView.swift`：选文件、摘要、无底图路线描线预览、等待/超时、写入
 - `FITHealth/Core/FITParser.swift`：FIT 二进制解析
 - `FITHealth/HealthImporter.swift`：HealthKit 授权及保存
 - `FITHealthTests/FITParserTests.swift`：解析测试，可在 Mac 上跑
