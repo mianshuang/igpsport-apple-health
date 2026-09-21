@@ -134,6 +134,20 @@ final class FITParserTests: XCTestCase {
         XCTAssertTrue(activity.heartRates.isEmpty)
     }
 
+    func testSpeedDownsampleAveragesEveryInterval() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let points = (0..<12).map { index in
+            (start.addingTimeInterval(Double(index)), Double(index + 1))
+        }
+        let reduced = RideSampling.downsample(points, interval: 5)
+        XCTAssertEqual(reduced.count, 3)
+        XCTAssertEqual(reduced[0].1, 3, accuracy: 0.0001)
+        XCTAssertEqual(reduced[1].1, 8, accuracy: 0.0001)
+        XCTAssertEqual(reduced[2].1, 11.5, accuracy: 0.0001)
+        XCTAssertEqual(reduced[0].0, points[4].0)
+        XCTAssertEqual(RideSampling.speedInterval, 5)
+    }
+
     func testRejectsNonCyclingAndIndoor() {
         var parser = FITParser(data: wrap(session(sport: 1)))
         XCTAssertThrowsError(try parser.parse()) { XCTAssertEqual($0 as? FITError, .notOutdoorCycling) }

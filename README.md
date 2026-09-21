@@ -54,7 +54,7 @@ Cursor 侧已配置官方 Xcode MCP（`xcrun mcpbridge`）。Xcode → Settings 
 | `total_timer_time` + timer 事件 | 运动时长（不含暂停） | 健康用 pause/resume 还原真实骑行时间。没有 timer 事件时，把休息整段落在结束前 |
 | record `position_lat` / `position_long` / `altitude` / `speed` | **`HKWorkoutRoute` GPS 地图** | 半圆坐标转经纬度；高度 `value/5 - 500` 米 |
 | session `total_distance` | `distanceCycling` | 米，一条总量 |
-| record `enhanced_speed`（优先）或 `speed` | `cyclingSpeed` 采样 | m/s，健康里可看速度曲线 |
+| record `enhanced_speed`（优先）或 `speed` | `cyclingSpeed` 采样 | 按 `speedInterval = 5` 每 5 个点取平均后再写入 |
 | session `enhanced_avg_speed` / `enhanced_max_speed` | `HKMetadataKeyAverageSpeed` / `MaximumSpeed` | 也用于摘要 |
 | lap（本机 5 km 自动圈） | `HKWorkoutEvent.lap` | 圈平均/最大速度放事件 metadata。没有圈时按累计距离切 1 km |
 | session `total_calories` | `activeEnergyBurned` | 千卡 |
@@ -77,12 +77,14 @@ Cursor 侧已配置官方 Xcode MCP（`xcrun mcpbridge`）。Xcode → Settings 
 
 ### 配速
 
-健康对骑行展示的是 **速度（km/h）**，没有单独的「配速」类型。时段速度来自整场平均/最大速度 metadata、逐秒 `cyclingSpeed`，以及圈段 lap 事件上的平均速度。本机自动圈是 5 km；没有 lap 时按 1 km 切。
+健康对骑行展示的是 **速度（km/h）**，没有单独的「配速」类型。时段速度来自整场平均/最大速度 metadata、稀释后的 `cyclingSpeed`，以及圈段 lap 事件上的平均速度。本机自动圈是 5 km；没有 lap 时按 1 km 切。
+
+GPS 路线由 `HKWorkoutBuilder.seriesBuilder(for: .workoutRoute())` 收集点，随 `finishWorkout()` 一并保存并关联。不要再对这个 builder 调用 `finishRoute(with:)`，iOS 会抛错。独立 `HKWorkoutRouteBuilder(healthStore:)` 才需要先保存 Workout 再 `finishRoute`。应用内路线预览只描线，没有底图。
 
 ## 文件
 
 - `.cursor/rules/igpsport-cycling.mdc`：范围紧箍咒
-- `FITHealth/ContentView.swift`：选文件、摘要、写入
+- `FITHealth/ContentView.swift`：选文件、摘要、无底图路线描线预览、写入
 - `FITHealth/Core/FITParser.swift`：FIT 二进制解析
 - `FITHealth/HealthImporter.swift`：HealthKit 授权及保存
 - `FITHealthTests/FITParserTests.swift`：解析测试，可在 Mac 上跑

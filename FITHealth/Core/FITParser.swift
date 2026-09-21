@@ -119,6 +119,91 @@ enum FITError: LocalizedError, Equatable {
     }
 }
 
+enum RideLog {
+    static var enabled: Bool {
+        #if os(iOS)
+        true
+        #else
+        false
+        #endif
+    }
+
+    static func phase(_ name: String) {
+        guard enabled else { return }
+        print("")
+        print("—— 骑行导入 · \(name) ——")
+    }
+
+    static func step(_ call: String, _ meaning: String, extra: String? = nil) {
+        emit("·", call, meaning, extra)
+    }
+
+    static func ok(_ call: String, _ meaning: String, extra: String? = nil) {
+        emit("✓", call, meaning, extra)
+    }
+
+    static func fail(_ call: String, _ meaning: String, extra: String? = nil) {
+        emit("✗", call, meaning, extra)
+    }
+
+    static func fail(_ call: String, _ meaning: String, error: Error) {
+        fail(call, meaning, extra: error.localizedDescription)
+    }
+
+    static func skip(_ call: String, _ meaning: String, extra: String? = nil) {
+        emit("–", call, meaning, extra)
+    }
+
+    static func hms(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+    }
+
+    static func km(_ meters: Double) -> String {
+        String(format: "%.2f km", meters / 1000)
+    }
+
+    static func kmh(_ metersPerSecond: Double) -> String {
+        String(format: "%.1f km/h", metersPerSecond * 3.6)
+    }
+
+    static func date(_ date: Date) -> String {
+        date.formatted(date: .numeric, time: .standard)
+    }
+
+    private static func emit(_ mark: String, _ call: String, _ meaning: String, _ extra: String?) {
+        guard enabled else { return }
+        var text = "[骑行导入] \(mark) \(call)  // \(meaning)"
+        if let extra, !extra.isEmpty { text += "  |  \(extra)" }
+        print(text)
+        let line = text + "\n"
+        let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let file = folder.appendingPathComponent("ride-import.log")
+        if FileManager.default.fileExists(atPath: file.path), let handle = try? FileHandle(forWritingTo: file) {
+            defer { try? handle.close() }
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+        } else {
+            try? Data(line.utf8).write(to: file)
+        }
+    }
+}
+
+struct RideStageClock {
+    private let origin = CFAbsoluteTimeGetCurrent()
+    private var last = CFAbsoluteTimeGetCurrent()
+
+    mutating func extra(_ extra: String? = nil) -> String {
+        let now = CFAbsoluteTimeGetCurrent()
+        let step = now - last
+        let total = now - origin
+        last = now
+        let timing = String(format: "本步 %.2fs，累计 %.2fs", step, total)
+        if let extra, !extra.isEmpty { return "\(extra)；\(timing)" }
+        return timing
+    }
+}
+
 /// Decodes FIT activity files. Unknown messages and developer fields are skipped by declared size.
 struct FITParser {
     private struct Field {
@@ -142,15 +227,28 @@ struct FITParser {
     }
 
     mutating func parse() throws -> FITActivity {
+        var clock = RideStageClock()
+        RideLog.phase("解析 FIT")
+        RideLog.step("FITParser.parse()", "开始拆 Garmin FIT 二进制活动文件", extra: "\(bytes.count) 字节")
         guard bytes.count >= 14, bytes[0] >= 12,
-              Array(bytes[8..<12]) == Array(".FIT".utf8) else { throw FITError.invalidFile }
+              Array(bytes[8..<12]) == Array(".FIT".utf8) else {
+            RideLog.fail("FIT header", "文件头不是 .FIT，拒绝读取")
+            throw FITError.invalidFile
+        }
         let headerSize = Int(bytes[0])
         let payloadSize = Int(Self.integer(Array(bytes[4..<8]), bigEndian: false))
+        RideLog.ok("FIT header", "读到协议头和数据区长度",
+                   extra: clock.extra("header=\(headerSize) B，payload=\(payloadSize) B"))
         guard headerSize <= bytes.count, payloadSize <= bytes.count - headerSize - 2 else {
+            RideLog.fail("FIT header", "头或数据区长度超出文件，文件不完整")
             throw FITError.corrupted
         }
         let dataEnd = headerSize + payloadSize
-        guard Self.crc(bytes[0..<(dataEnd + 2)]) == 0 else { throw FITError.corrupted }
+        guard Self.crc(bytes[0..<(dataEnd + 2)]) == 0 else {
+            RideLog.fail("FIT CRC", "校验失败，文件损坏或未完整导出")
+            throw FITError.corrupted
+        }
+        RideLog.ok("FIT CRC", "校验通过，开始逐条读 message")
         offset = headerSize
         limit = dataEnd
         var definitions: [Int: Definition] = [:]
@@ -186,7 +284,10 @@ struct FITParser {
                                                  fields: fields, developerSize: developerSize)
                 continue
             }
-            guard let definition = definitions[local] else { throw FITError.corrupted }
+            guard let definition = definitions[local] else {
+                RideLog.fail("FIT definition", "本地 message 定义缺失，文件损坏")
+                throw FITError.corrupted
+            }
             var values: [Int: Double] = [:]
             if compressed {
                 guard let previous = timestamp else { throw FITError.corrupted }
@@ -225,21 +326,47 @@ struct FITParser {
             default: break
             }
         }
-        guard sessions.count <= 1 else { throw FITError.multipleSessions }
-        guard let session = sessions.first, let startValue = session[2] else { throw FITError.missingSession }
+        let counts = messageCounts.keys.sorted().map { global in
+            "\(Self.messageName(global)) ×\(messageCounts[global] ?? 0)"
+        }.joined(separator: "，")
+        RideLog.ok("FIT messages", "按 global mesg num 汇总本文件出现过的记录类型",
+                   extra: clock.extra(counts.isEmpty ? "没有可读消息" : counts))
+        guard sessions.count <= 1 else {
+            RideLog.fail("session", "文件含多次 session，本应用只收单次骑行", extra: "session 条数=\(sessions.count)")
+            throw FITError.multipleSessions
+        }
+        guard let session = sessions.first, let startValue = session[2] else {
+            RideLog.fail("session", "没有 session 或缺少 start_time，无法构成一次骑行")
+            throw FITError.missingSession
+        }
         let start = Self.date(startValue)
         let elapsed = session[7].map { $0 / 1000 }
         let timer = session[8].map { $0 / 1000 }
         let end = elapsed.map { start.addingTimeInterval($0) } ?? session[253].map(Self.date)
-        guard let end, end > start else { throw FITError.missingSession }
+        guard let end, end > start else {
+            RideLog.fail("session.start_time", "缺少有效结束时间，无法构成骑行")
+            throw FITError.missingSession
+        }
         let moving = timer ?? elapsed ?? end.timeIntervalSince(start)
         let wall = elapsed ?? end.timeIntervalSince(start)
-        guard moving > 0, moving <= wall + 1 else { throw FITError.corrupted }
+        guard moving > 0, moving <= wall + 1 else {
+            RideLog.fail("total_timer_time", "timer/elapsed 不合理，文件损坏",
+                         extra: "骑行时间=\(RideLog.hms(moving))，总耗时=\(RideLog.hms(wall))")
+            throw FITError.corrupted
+        }
+        RideLog.ok("total_timer_time / total_elapsed_time",
+                   "timer 是不含暂停的真实骑行时间；elapsed 是含休息的墙钟总耗时",
+                   extra: clock.extra("骑行 \(RideLog.hms(moving))，总耗时 \(RideLog.hms(wall))，开始 \(RideLog.date(start))"))
         let inRange: (Date) -> Bool = { $0 >= start.addingTimeInterval(-1) && $0 <= end.addingTimeInterval(1) }
         let sport = session[5].map { Int($0.rounded()) } ?? 0
         let subSport = session[6].map { Int($0.rounded()) } ?? 0
-        guard sport == 2, subSport != 6 else { throw FITError.notOutdoorCycling }
-        return FITActivity(
+        guard sport == 2, subSport != 6 else {
+            RideLog.fail("sport / sub_sport", "不是户外骑行，整文件拒绝。sport==2 才是骑行，sub_sport==6 是室内骑行",
+                         extra: "sport=\(sport)，sub_sport=\(subSport)")
+            throw FITError.notOutdoorCycling
+        }
+        RideLog.ok("sport==2 && sub_sport!=6", "确认为 iGPSPORT 户外骑行", extra: "sub_sport=\(subSport)")
+        let activity = FITActivity(
             sport: sport,
             subSport: subSport,
             start: start,
@@ -268,6 +395,34 @@ struct FITParser {
             lapFieldNumbers: lapFields.sorted(),
             messageCounts: messageCounts
         )
+        let gps = activity.locations.count
+        let hr = activity.heartRates.count
+        let cad = activity.samples.filter { ($0.cadence ?? 0) > 0 }.count
+        let pwr = activity.samples.filter { $0.power != nil }.count
+        RideLog.ok("FITActivity", "已抽出本次骑行摘要与采样，准备给界面预览 / 写入健康",
+                   extra: clock.extra([
+                    activity.distance.map { "距离 \(RideLog.km($0))" },
+                    activity.avgSpeed.map { "均速 \(RideLog.kmh($0))" },
+                    activity.maxSpeed.map { "极速 \(RideLog.kmh($0))" },
+                    "GPS \(gps) 点",
+                    "圈段 \(activity.laps.count)",
+                    "心率 \(hr)",
+                    "踏频 \(cad)",
+                    "功率 \(pwr)",
+                    activity.calories.map { "热量 \(Int($0)) kcal" },
+                    activity.ascent.map { "爬升 \(Int($0)) m" }
+                   ].compactMap { $0 }.joined(separator: "，")))
+        return activity
+    }
+
+    private static func messageName(_ global: Int) -> String {
+        switch global {
+        case 18: "session会话"
+        case 19: "lap圈段"
+        case 20: "record记录"
+        case 21: "event事件"
+        default: "mesg#\(global)"
+        }
     }
 
     private mutating func read(_ count: Int) throws -> [UInt8] {
@@ -407,6 +562,25 @@ struct FITParser {
             for _ in 0..<8 { crc = crc & 1 == 1 ? (crc >> 1) ^ 0xA001 : crc >> 1 }
         }
         return crc
+    }
+}
+
+enum RideSampling {
+    static let speedInterval = 5
+
+    static func downsample(_ points: [(Date, Double)], interval: Int = speedInterval) -> [(Date, Double)] {
+        guard interval > 1, points.count > 1 else { return points }
+        var result: [(Date, Double)] = []
+        result.reserveCapacity((points.count + interval - 1) / interval)
+        var index = 0
+        while index < points.count {
+            let end = min(index + interval, points.count)
+            let slice = points[index..<end]
+            let average = slice.reduce(0) { $0 + $1.1 } / Double(slice.count)
+            result.append((slice[slice.index(before: slice.endIndex)].0, average))
+            index = end
+        }
+        return result
     }
 }
 
